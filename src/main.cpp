@@ -52,7 +52,7 @@ void setup() {
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
     Serial.println();
-    Serial.println("=== RotorHazard Lite ESP32-C3 Timer ===");
+    Serial.println("=== Tracer ESP32-C3 Timer ===");
     Serial.println("Version: 1.0.0");
     Serial.println("Single-core RISC-V processor");
     Serial.println();
@@ -145,7 +145,7 @@ void initializeMode() {
     // Only show debug output in standalone mode
     Serial.println("TimingCore: Ready");
     Serial.println();
-    Serial.println("=== WIFI/LITE MODE ACTIVE ===");
+    Serial.println("=== WIFI MODE ACTIVE ===");
     
     // Initialize standalone mode
     standalone.begin(&timing);

@@ -1,4 +1,4 @@
-# RotorHazard Lite - ESP32-C3 Timing System
+# Tracer - ESP32-C3 Timing System
 
 **The ultimate dual-mode FPV race timer** - Works standalone with WiFi or integrates seamlessly with RotorHazard server. Built on ESP32-C3 for maximum performance and reliability.
 
@@ -12,7 +12,7 @@
 - **Audio announcements** - Lap times announced via browser speech synthesis
 - **Multi-band support** - Raceband, Fatshark, Boscam A/E frequencies
 - **No server required** - Everything runs on the ESP32-C3
-<img src="docs/lite-gui.png" alt="RotorHazard Lite Web Interface" width="200">
+<img src="docs/lite-gui.png" alt="Tracer Web Interface" width="200">
 
 
 ### 🔌 RotorHazard Node Mode - Professional Racing
@@ -64,7 +64,7 @@ For detailed technical information, pin configurations, and setup instructions, 
 ## 🏗️ Building
 
 ```bash
-cd rotorhazard-lite/
+cd Tracer/
 pio run -e esp32-c3-supermini --target upload
 pio run -e esp32-c3-supermini --target uploadfs
 ```

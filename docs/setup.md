@@ -1,6 +1,6 @@
-# RotorHazard Lite - Setup Guide
+# Tracer - Setup Guide
 
-This guide walks you through setting up the development environment and flashing the RotorHazard Lite firmware to an ESP32-C3 SuperMini.
+This guide walks you through setting up the development environment and flashing the Tracer firmware to an ESP32-C3 SuperMini.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ pio --version
 
 ```bash
 # Navigate to the project directory
-cd /path/to/RotorHazard/src/lite/
+cd /Tracer
 
 # Verify you're in the right place (should see platformio.ini)
 ls -la
@@ -87,7 +87,7 @@ pio device monitor --port /dev/cu.usbmodemXXXX --baud 115200 --environment esp32
 
 **Expected output**:
 ```
-=== RotorHazard Lite ESP32-C3 Timer ===
+=== Tracer ESP32-C3 Timer ===
 Version: 1.0.0
 Single-core RISC-V processor
 Initializing timing core...
@@ -96,8 +96,8 @@ Setting up RX5808...
 TimingCore: Ready
 Initializing mode: STANDALONE/WIFI
 === WIFI/LITE MODE ACTIVE ===
-Connect to WiFi: rotorhazard-XXXX
-Web interface: http://lite.local
+Connect to WiFi: tracer-XXXX
+Web interface: http://tracer.local
 ESP32-C3 Single-core operation
 Setup complete!
 ```
@@ -138,7 +138,7 @@ If you don't see `/dev/cu.usbmodemXXXX`:
 
 ### Build Errors
 If build fails:
-1. Make sure you're in the correct directory (`RotorHazard/src/lite/`)
+1. Make sure you're in the correct directory (`Tracer`)
 2. Check that `platformio.ini` exists
 3. Try cleaning and rebuilding:
    ```bash
@@ -159,7 +159,7 @@ If build fails:
 ## Next Steps
 
 After successful upload:
-1. **WiFi Mode**: Set mode switch to GND, connect to "rotorhazard-XXXX" WiFi, open http://lite.local
+1. **WiFi Mode**: Set mode switch to GND, connect to "tracer-XXXX" WiFi, open http://tracer.local
 2. **Node Mode**: Set mode switch to 3.3V (or leave floating), connect to RotorHazard server via USB
 3. **Hardware Setup**: Connect RX5808 module using Hertz-hunter compatible pinout (see `hardware.md`)
 

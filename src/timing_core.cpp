@@ -1,12 +1,12 @@
 #include "timing_core.h"
 #include <SPI.h>
 
-// RX5808 register definitions (from original RotorHazard node code)
+// RX5808 register definitions
 #define RX5808_WRITE_REGISTER   0x00
 #define RX5808_SYNTH_A_REGISTER 0x01
 #define RX5808_SYNTH_B_REGISTER 0x02
 
-// RX5808 timing constants (from PhobosLT - proven to work)
+// RX5808 timing constants
 #define RX5808_MIN_TUNETIME 35    // ms - wait after freq change before reading RSSI
 #define RX5808_MIN_BUSTIME  30    // ms - minimum time between freq changes
 
@@ -257,7 +257,6 @@ uint8_t TimingCore::filterRSSI(uint8_t raw_rssi) {
 
 bool TimingCore::detectCrossing(uint8_t filtered_rssi) {
   // Simple threshold-based crossing detection
-  // TODO: Implement more sophisticated detection like original RotorHazard
   return filtered_rssi >= state.threshold;
 }
 
@@ -338,7 +337,7 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     return;
   }
   
-  // Convert frequency to register values (from original RotorHazard)
+  // Convert frequency to register values
   uint16_t freq_reg = ((freq_mhz - 479) * 16) / 5;
   uint16_t synth_a = 0x8008 | ((freq_reg & 0x0007) << 5) | ((freq_reg & 0x0078) >> 3);
   uint16_t synth_b = 0x8209 | ((freq_reg & 0x0380) << 2);

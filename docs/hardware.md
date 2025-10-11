@@ -1,4 +1,4 @@
-# RotorHazard Lite Documentation
+# Tracer Documentation
 
 ## Hardware Setup
 
