@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RotorHazard Lite Race Timer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>RotorHazard Lite Race Timer</h1>
+        <div id="status" class="status">Status: Ready</div>
+        
+        <div class="config-section">
+            <h3>Configuration</h3>
+            <div class="config-row">
+                <div class="config-item">
+                    <label for="bandSelect">FPV Band:</label>
+                    <select id="bandSelect" onchange="updateChannels()">
+                        <option value="Raceband">Raceband</option>
+                        <option value="Fatshark">Fatshark</option>
+                        <option value="Boscam_A">Boscam A</option>
+                        <option value="Boscam_E">Boscam E</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label for="channelSelect">Channel:</label>
+                    <select id="channelSelect" onchange="setFrequency()">
+                        <option value="5658">Loading...</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="config-row">
+                <div class="config-item">
+                    <label for="thresholdSlider">RSSI Threshold:</label>
+                    <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)">
+                    <span id="thresholdValue">50</span>
+                </div>
+                <div class="config-item rssi-display">
+                    <label>Current RSSI:</label>
+                    <span id="currentRSSI" class="rssi-value">0</span>
+                    <div id="rssiBar" class="rssi-bar">
+                        <div id="rssiLevel" class="rssi-level"></div>
+                        <div id="thresholdLine" class="threshold-line"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn" onclick="startRace()" class="btn btn-primary">Start Race</button>
+            <button id="stopBtn" onclick="stopRace()" class="btn btn-secondary">Stop Race</button>
+            <button id="clearBtn" onclick="clearLaps()" class="btn btn-danger">Clear Laps</button>
+            <button id="audioToggle" onclick="toggleAudio()" class="btn btn-info active">Audio On</button>
+            <button onclick="testAudio()" class="btn btn-info">Test Audio</button>
+        </div>
+        
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="lapCount">0</div>
+                <div class="stat-label">Total Laps</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="bestLap">--:--</div>
+                <div class="stat-label">Best Lap</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lastLap">--:--</div>
+                <div class="stat-label">Last Lap</div>
+            </div>
+        </div>
+        
+        <div class="laps-section">
+            <h2>Lap Times</h2>
+            <div id="laps" class="laps-container">
+                <p class="no-laps">No laps recorded yet</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js?v=4"></script>
+</body>
+</html>

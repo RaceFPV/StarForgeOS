@@ -1,0 +1,365 @@
+/* Race Timer CSS */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+header {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #e53e3e;
+    transition: background-color 0.3s;
+}
+
+.status-dot.connected {
+    background: #38a169;
+}
+
+/* Control Panel */
+.control-panel {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.race-controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #38a169;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: #2f855a;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #4299e1;
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #3182ce;
+    transform: translateY(-1px);
+}
+
+.btn-danger {
+    background: #e53e3e;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #c53030;
+    transform: translateY(-1px);
+}
+
+.btn-info {
+    background: #805ad5;
+    color: white;
+}
+
+.btn-info:hover:not(:disabled) {
+    background: #6b46c1;
+    transform: translateY(-1px);
+}
+
+.btn-info.active {
+    background: #38a169;
+}
+
+.btn-info.active:hover:not(:disabled) {
+    background: #2f855a;
+}
+
+.settings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.setting {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.setting label {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 0.9rem;
+}
+
+.setting input {
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.setting input:focus {
+    outline: none;
+    border-color: #4299e1;
+}
+
+.setting input[type="range"] {
+    padding: 0;
+}
+
+/* Current Status */
+.current-status {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.status-item {
+    text-align: center;
+    padding: 12px;
+    background: #f7fafc;
+    border-radius: 8px;
+}
+
+.status-item label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #718096;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-item .value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2d3748;
+}
+
+/* RSSI Bar */
+.rssi-bar {
+    margin-top: 20px;
+}
+
+.rssi-bar label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #2d3748;
+}
+
+.rssi-container {
+    position: relative;
+    height: 30px;
+    background: #e2e8f0;
+    border-radius: 15px;
+    overflow: hidden;
+}
+
+.rssi-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38a169 0%, #68d391 50%, #e53e3e 100%);
+    transition: width 0.2s;
+    border-radius: 15px;
+    width: 0%;
+}
+
+.threshold-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #2d3748;
+    left: 20%;
+    transition: left 0.2s;
+}
+
+/* Lap Times */
+.lap-times {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.lap-times h2 {
+    margin-bottom: 16px;
+    color: #2d3748;
+    font-size: 1.5rem;
+}
+
+.lap-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.lap-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #f7fafc;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    transition: background-color 0.2s;
+}
+
+.lap-item:hover {
+    background: #edf2f7;
+}
+
+.lap-item.best {
+    background: #c6f6d5;
+    border-left: 4px solid #38a169;
+}
+
+.lap-number {
+    font-weight: 700;
+    color: #4a5568;
+    font-size: 0.9rem;
+}
+
+.lap-time {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #2d3748;
+    font-family: monospace;
+}
+
+.lap-info {
+    font-size: 0.8rem;
+    color: #718096;
+}
+
+.no-laps {
+    text-align: center;
+    color: #a0aec0;
+    font-style: italic;
+    padding: 40px 20px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    header {
+        flex-direction: column;
+        gap: 12px;
+        text-align: center;
+    }
+    
+    .race-controls {
+        justify-content: center;
+    }
+    
+    .status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    h1 {
+        font-size: 1.5rem;
+    }
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-dot.connecting {
+    animation: pulse 1s infinite;
+}
+
+/* Crossing indicator */
+.crossing {
+    background: #feb2b2 !important;
+    animation: pulse 0.5s infinite;
+}
+
+/* Success animations */
+@keyframes lapFlash {
+    0% { background-color: #c6f6d5; }
+    50% { background-color: #9ae6b4; }
+    100% { background-color: #c6f6d5; }
+}
+
+.lap-item.new-lap {
+    animation: lapFlash 1s ease-in-out;
+}
