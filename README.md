@@ -36,8 +36,8 @@ Switch between modes instantly - no firmware changes needed. Use a simple jumper
 
 ### Standalone Mode (WiFi)
 1. Power on the device
-2. Connect to WiFi network "rotorhazard-XXXX"
-3. Open browser to http://lite.local
+2. Connect to WiFi network "tracer-XXXX"
+3. Open browser to http://tracer.local
 4. Start racing!
 
 ### RotorHazard Node Mode
@@ -77,4 +77,5 @@ Common issues and solutions are covered in the [Setup Guide](docs/setup.md). For
 ---
 
 **Ready to race?** Get started with the [Setup Guide](docs/setup.md) and join the FPV racing community!
+
 
