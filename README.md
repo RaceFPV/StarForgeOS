@@ -12,7 +12,6 @@
 - **Audio announcements** - Lap times announced via browser speech synthesis
 - **Multi-band support** - Raceband, Fatshark, Boscam A/E frequencies
 - **No server required** - Everything runs on the ESP32-C3
-<img src="docs/lite-gui.png" alt="Tracer Web Interface" width="200">
 
 
 ### 🔌 RotorHazard Node Mode - Professional Racing
@@ -78,3 +77,4 @@ Common issues and solutions are covered in the [Setup Guide](docs/setup.md). For
 ---
 
 **Ready to race?** Get started with the [Setup Guide](docs/setup.md) and join the FPV racing community!
+
