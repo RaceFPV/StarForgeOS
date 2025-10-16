@@ -1,7 +1,7 @@
 # PlatformIO
-.pio/
-.pioenvs/
-.piolibdeps/
+.pio
+.pioenvs
+.piolibdeps
 .vscode/
 .clang_complete
 .gcc-flags.json
