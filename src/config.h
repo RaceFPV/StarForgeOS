@@ -11,7 +11,7 @@
 // Serial communication (USB CDC on ESP32-C3 SuperMini)
 // ESP32-C3 SuperMini uses USB CDC for communication with PC/RotorHazard
 // Note: USB CDC ignores baud rate (USB is packet-based), but we set it for compatibility
-#define UART_BAUD_RATE      115200
+#define UART_BAUD_RATE      921600
 
 // Mode selection (ESP32-C3 with pullup)
 #define WIFI_MODE           LOW   // GND on switch pin = WiFi/Standalone mode
@@ -32,10 +32,10 @@
 
 
 // WiFi configuration
-#define WIFI_AP_SSID_PREFIX "tracer"
+#define WIFI_AP_SSID_PREFIX "Tracer"
 #define WIFI_AP_PASSWORD    ""    // Open network for simplicity
 #define WEB_SERVER_PORT     80
-#define MDNS_HOSTNAME       "tracer"         // mDNS hostname (accessible as lite.local)
+#define MDNS_HOSTNAME       "tracer"         // mDNS hostname (accessible as tracer.local)
 
 // Data storage
 #define MAX_LAPS_STORED     100   // Maximum laps to store in memory

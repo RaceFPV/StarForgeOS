@@ -2,6 +2,7 @@
 #define TIMING_CORE_H
 
 #include <Arduino.h>
+#include <cstdint>
 #include "config.h"
 
 // Structure to hold lap data
@@ -54,7 +55,7 @@ private:
   void resetRX5808Module();
   void configureRX5808Power();
   void setRX5808Frequency(uint16_t freq_mhz);
-  void sendRX5808Bits(uint16_t data, uint8_t bit_count);
+  void sendRX5808Bit(uint8_t bit_value);
   
   // RSSI processing
   uint8_t readRawRSSI();

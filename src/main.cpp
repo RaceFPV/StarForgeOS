@@ -3,6 +3,7 @@
 #include "timing_core.h"
 #include "standalone_mode.h"
 #include "node_mode.h"
+#include <WiFi.h>
 
 // Global firmware version strings (for compatibility with RotorHazard server)
 const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32-C3_Lite_1.0.0";
@@ -32,16 +33,6 @@ void serialEvent();
 void setup() {
   Serial.begin(UART_BAUD_RATE);
   
-  // Wait for serial connection (like Arduino)
-  while (!Serial) {
-    delay(10);
-  }
-  
-  // Additional delay for ESP32-C3 USB CDC
-  #ifdef ARDUINO_USB_CDC_ON_BOOT
-  delay(1000); // Give time for USB serial to stabilize
-  #endif
-  
   // Initialize mode selection pin (floating=Node, GND=WiFi, HIGH=Node)
   pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
   
@@ -58,6 +49,7 @@ void setup() {
     Serial.println();
     Serial.println("Mode: STANDALONE/WIFI (Pin 0 = LOW/GND)");
     Serial.println("Initializing timing core...");
+    WiFi.softAP("TRACER", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
   }
   
   // Initialize core timing system (always active)
@@ -66,9 +58,6 @@ void setup() {
   // Set debug mode based on current mode
   bool debug_mode = (current_mode == MODE_STANDALONE);
   timing.setDebugMode(debug_mode);
-  if (debug_mode) {
-    Serial.printf("Debug mode enabled for mode: %s\n", current_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
-  }
   
   // Activate timing core for both modes
   timing.setActivated(true);

@@ -25,6 +25,8 @@ private:
     // Web server task
     TaskHandle_t _webTaskHandle;
     static void webServerTask(void* parameter);
+    String _apSSID;
+
 
     void handleRoot();
     void handleGetStatus();

@@ -41,6 +41,15 @@ void TimingCore::begin() {
   // Setup pins
   pinMode(RSSI_INPUT_PIN, INPUT);
   
+  // CRITICAL: Configure ADC attenuation for full 0-3.3V range
+  // RX5808 RSSI output is 0-3.3V, so we need 11dB attenuation
+  // Without this, ESP32-C3 ADC defaults to lower voltage range and saturates
+  analogSetAttenuation(ADC_11db);  // Set global attenuation to 11dB (0-3.3V)
+  
+  if (debug_enabled) {
+    Serial.println("ADC configured for 0-3.3V range (11dB attenuation)");
+  }
+  
   // Test ADC reading immediately
   uint16_t test_adc = analogRead(RSSI_INPUT_PIN);
   if (debug_enabled) {
@@ -209,7 +218,7 @@ void TimingCore::timingTask(void* parameter) {
 
 uint8_t TimingCore::readRawRSSI() {
   // Check if frequency was recently changed - RSSI is unstable during tuning
-  // This is critical for accurate readings (from PhobosLT)
+  // This is critical for accurate readings after frequency changes
   if (recent_freq_change) {
     uint32_t elapsed = millis() - freq_change_time;
     if (elapsed < RX5808_MIN_TUNETIME) {
@@ -224,14 +233,15 @@ uint8_t TimingCore::readRawRSSI() {
   // Read 12-bit ADC value (0-4095 on ESP32)
   uint16_t adc_value = analogRead(RSSI_INPUT_PIN);
   
-  // RX5808 is 3.3V powered, won't use full ADC range
-  // Clamp to 2047 (roughly half of 12-bit range) like PhobosLT does
+  // RX5808 RSSI typically outputs 0-2V (not full 0-3.3V range)
+  // Clamp to 2047 (half of 12-bit range = ~2V @ 3.3V reference)
+  // This prevents noise in the unused upper range from affecting readings
   if (adc_value > 2047) {
     adc_value = 2047;
   }
   
-  // Rescale to fit into a byte (0-255) - divide by 8
-  // This matches the PhobosLT approach which is proven to work
+  // Rescale from 0-2047 to 0-255 (divide by 8)
+  // This gives us the standard 0-255 RSSI range used by lap timing systems
   return adc_value >> 3;
 }
 
@@ -316,12 +326,12 @@ void TimingCore::setupRX5808() {
   
   delay(100); // Allow module to stabilize
   
-  // CRITICAL: Reset RX5808 module (from PhobosLT - proven to work)
-  // This wakes the module and puts it in a known state
+  // CRITICAL: Reset RX5808 module to wake it and put it in a known state
+  // This ensures reliable operation after power-on
   resetRX5808Module();
   
-  // CRITICAL: Configure power settings (from PhobosLT)
-  // This disables unused features and optimizes power consumption
+  // CRITICAL: Configure power settings to optimize performance
+  // This disables unused features and reduces power consumption
   configureRX5808Power();
   
   if (debug_enabled) {
@@ -337,19 +347,52 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     return;
   }
   
-  // Convert frequency to register values
-  uint16_t freq_reg = ((freq_mhz - 479) * 16) / 5;
-  uint16_t synth_a = 0x8008 | ((freq_reg & 0x0007) << 5) | ((freq_reg & 0x0078) >> 3);
-  uint16_t synth_b = 0x8209 | ((freq_reg & 0x0380) << 2);
+  // Calculate register value using standard RX5808 formula from datasheet
+  // Formula: tf = (freq - 479) / 2, then N = tf / 32, A = tf % 32, reg = (N << 7) + A
+  uint16_t tf = (freq_mhz - 479) / 2;
+  uint16_t N = tf / 32;
+  uint16_t A = tf % 32;
+  uint16_t vtxHex = (N << 7) + A;
   
   if (debug_enabled) {
-    Serial.printf("Setting frequency to %d MHz (reg=%d, synth_a=0x%04X, synth_b=0x%04X)\n", 
-                  freq_mhz, freq_reg, synth_a, synth_b);
+    Serial.printf("Setting frequency to %d MHz (tf=%d, N=%d, A=%d, reg=0x%04X)\n", 
+                  freq_mhz, tf, N, A, vtxHex);
   }
   
-  // Send register values
-  sendRX5808Bits(synth_a, 16);
-  sendRX5808Bits(synth_b, 16);
+  // Send frequency to RX5808 using standard 25-bit protocol:
+  // 4 bits: Register address (0x1)
+  // 1 bit: Write flag (1)
+  // 16 bits: Register value (LSB first)
+  // 4 bits: Padding (0)
+  
+  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(RX5808_SEL_PIN, LOW);
+  
+  // Register 0x1 (frequency register)
+  sendRX5808Bit(1);  // bit 0
+  sendRX5808Bit(0);  // bit 1
+  sendRX5808Bit(0);  // bit 2
+  sendRX5808Bit(0);  // bit 3
+  
+  // Write flag
+  sendRX5808Bit(1);
+  
+  // Data bits D0-D15 (LSB first)
+  for (uint8_t i = 0; i < 16; i++) {
+    sendRX5808Bit((vtxHex >> i) & 0x1);
+  }
+  
+  // Padding bits D16-D19
+  sendRX5808Bit(0);
+  sendRX5808Bit(0);
+  sendRX5808Bit(0);
+  sendRX5808Bit(0);
+  
+  digitalWrite(RX5808_SEL_PIN, HIGH);
+  delay(2);
+  
+  digitalWrite(RX5808_CLK_PIN, LOW);
+  digitalWrite(RX5808_DATA_PIN, LOW);
   
   state.frequency_mhz = freq_mhz;
   
@@ -357,72 +400,87 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   recent_freq_change = true;
   freq_change_time = millis();
   
-  // Allow time for frequency to stabilize
-  delay(50);
   if (debug_enabled) {
     Serial.printf("Frequency set to %d MHz (RSSI unstable for %dms)\n", freq_mhz, RX5808_MIN_TUNETIME);
   }
 }
 
-void TimingCore::sendRX5808Bits(uint16_t data, uint8_t bit_count) {
-  digitalWrite(RX5808_SEL_PIN, LOW);
-  delayMicroseconds(1);
+void TimingCore::sendRX5808Bit(uint8_t bit_value) {
+  // Send a single bit to RX5808 using standard SPI-like protocol
+  // 300µs delays ensure reliable communication with the module
+  digitalWrite(RX5808_DATA_PIN, bit_value ? HIGH : LOW);
+  delayMicroseconds(300);
   
-  // Send bits MSB first
-  for (int i = bit_count - 1; i >= 0; i--) {
-    digitalWrite(RX5808_CLK_PIN, LOW);
-    delayMicroseconds(1);
-    
-    digitalWrite(RX5808_DATA_PIN, (data >> i) & 1);
-    delayMicroseconds(1);
-    
-    digitalWrite(RX5808_CLK_PIN, HIGH);
-    delayMicroseconds(1);
-  }
+  digitalWrite(RX5808_CLK_PIN, HIGH);
+  delayMicroseconds(300);
   
   digitalWrite(RX5808_CLK_PIN, LOW);
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  delayMicroseconds(1);
+  delayMicroseconds(300);
 }
 
 void TimingCore::resetRX5808Module() {
-  // Reset RX5808 by writing zeros to register 0xF (from PhobosLT)
+  // Reset RX5808 by writing zeros to register 0xF
   // This wakes the module from power-down and puts it in a known state
   if (debug_enabled) {
     Serial.println("Resetting RX5808 module (register 0xF)...");
   }
   
-  // Register 0xF = 0b1111 (4 bits for address)
-  // Write bit = 1
-  // 20 bits of data = all zeros
-  uint32_t reset_command = 0xF << 21 | 1 << 20 | 0x00000;  // 0xF, write, 20 zeros
-  sendRX5808Bits(reset_command >> 16, 9);  // Address (4) + write (1) + first 4 data bits
-  sendRX5808Bits(0x0000, 16);  // Remaining 16 data bits
+  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(RX5808_SEL_PIN, LOW);
   
+  // Register 0xF (reset register) = 1111
+  sendRX5808Bit(1);
+  sendRX5808Bit(1);
+  sendRX5808Bit(1);
+  sendRX5808Bit(1);
+  
+  // Write flag
+  sendRX5808Bit(1);
+  
+  // 20 bits of zeros
+  for (uint8_t i = 0; i < 20; i++) {
+    sendRX5808Bit(0);
+  }
+  
+  digitalWrite(RX5808_SEL_PIN, HIGH);
   delay(10);
+  
   if (debug_enabled) {
     Serial.println("RX5808 reset complete");
   }
 }
 
 void TimingCore::configureRX5808Power() {
-  // Configure RX5808 power register 0xA (from PhobosLT)
+  // Configure RX5808 power register 0xA for optimal operation
   // This disables unused features to save power and optimize performance
   // Power configuration: 0b11010000110111110011
   if (debug_enabled) {
     Serial.println("Configuring RX5808 power (register 0xA)...");
   }
   
-  // Register 0xA = 0b1010 (4 bits for address)
-  // Write bit = 1
-  // 20 bits of data = 0b11010000110111110011
+  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(RX5808_SEL_PIN, LOW);
+  
+  // Register 0xA (power register) = 1010
+  sendRX5808Bit(0);
+  sendRX5808Bit(1);
+  sendRX5808Bit(0);
+  sendRX5808Bit(1);
+  
+  // Write flag
+  sendRX5808Bit(1);
+  
+  // 20 bits of power configuration data: 0b11010000110111110011
   uint32_t power_config = 0b11010000110111110011;
-  uint32_t command = 0xA << 21 | 1 << 20 | power_config;
+  for (uint8_t i = 0; i < 20; i++) {
+    sendRX5808Bit((power_config >> i) & 0x1);
+  }
   
-  sendRX5808Bits(command >> 16, 9);  // Address (4) + write (1) + first 4 data bits
-  sendRX5808Bits(command & 0xFFFF, 16);  // Remaining 16 data bits
-  
+  digitalWrite(RX5808_SEL_PIN, HIGH);
   delay(10);
+  
+  digitalWrite(RX5808_DATA_PIN, LOW);
+  
   if (debug_enabled) {
     Serial.println("RX5808 power configuration complete");
   }

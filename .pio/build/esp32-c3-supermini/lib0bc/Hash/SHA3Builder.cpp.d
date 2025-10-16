@@ -1,0 +1,36 @@
+.pio/build/esp32-c3-supermini/lib0bc/Hash/SHA3Builder.cpp.o: \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/libraries/Hash/src/SHA3Builder.cpp \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-log.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_timer/include/esp_timer.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/newlib/platform_include/stdio.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_err.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_compiler.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_hw_support/include/esp_etm.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_rom/esp32c3/include/esp32c3/rom/ets_sys.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_rom/include/esp_rom_sys.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/soc/esp32c3/include/soc/reset_reasons.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/soc/esp32c3/include/soc/soc_caps.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_config.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_level.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_assert.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_color.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_buffer.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_timestamp.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_write.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_format.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_args.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_macros.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_assert.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_log_attr.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/esp_common/include/esp_attr.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32-libs/esp32c3/include/log/include/esp_private/log_attr.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/libraries/Hash/src/SHA3Builder.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/WString.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/pgmspace.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/Stream.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/Print.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/WString.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/Printable.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/HashBuilder.h \
+ /home/racefpv/.platformio/packages/framework-arduinoespressif32/cores/esp32/HEXBuilder.h

@@ -2,6 +2,8 @@
 #include <WiFi.h>
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
+#include <esp_wifi.h>
+#include <string.h>
 #include "config.h"
 
 StandaloneMode::StandaloneMode() : _server(80), _timingCore(nullptr) {
@@ -21,13 +23,14 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         Serial.printf("mDNS responder started: %s.local\n", MDNS_HOSTNAME);
         MDNS.addService("http", "tcp", WEB_SERVER_PORT);
     } else {
-        Serial.println("Error setting up mDNS responder");
+        Serial.println("Warning: Error setting up mDNS responder (not critical)");
     }
     
     // Initialize SPIFFS for serving static files
     if (!SPIFFS.begin(true)) {
-        Serial.println("SPIFFS Mount Failed");
-        return;
+        Serial.println("Warning: SPIFFS Mount Failed (index.html won't be available, but API will work)");
+    } else {
+        Serial.println("SPIFFS mounted successfully");
     }
     
     // Setup web server routes
@@ -54,6 +57,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     // Create dedicated web server task
     xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);
     Serial.println("Web server task created");
+    Serial.println("Setup complete!");
 }
 
 void StandaloneMode::process() {
@@ -74,67 +78,50 @@ void StandaloneMode::process() {
         
         Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
     }
-    
-    
-    // Monitor WiFi status and recover if needed
-    static unsigned long last_wifi_check = 0;
-    if (millis() - last_wifi_check > 5000) { // Check every 5 seconds
-        if (WiFi.getMode() != WIFI_AP) {
-            Serial.println("WiFi mode lost, restarting...");
-            WiFi.mode(WIFI_AP);
-            delay(100);
-        }
-        last_wifi_check = millis();
-    }
 }
 
 void StandaloneMode::setupWiFiAP() {
-    // Disable WiFi power saving for stability
-    WiFi.setSleep(false);
+    Serial.println("=== Starting WiFi AP Setup ===");
     
-    // Set WiFi mode to AP only
-    WiFi.mode(WIFI_AP);
-    
-    // Wait for mode to be set
-    delay(100);
+    // WiFi was pre-initialized in main.cpp BEFORE timing task starts
+    // This prevents the high-priority timing task from starving WiFi init
+    // Now we reconfigure it with proper SSID, IP, and settings
     
     // Create unique SSID with MAC address
-    String macAddr = WiFi.macAddress();
-    macAddr.replace(":", "");
-    String apSSID = String(WIFI_AP_SSID_PREFIX) + "-" + macAddr.substring(8);
+    // Use softAPmacAddress() for AP mode, not macAddress() (which is for STA mode)
+    String macAddr = WiFi.softAPmacAddress();
     
-    // Configure AP with more stable settings
+    Serial.printf("AP MAC Address: %s\n", macAddr.c_str());
+    
+    if (macAddr.length() == 0 || macAddr == "00:00:00:00:00:00") {
+        _apSSID = String(WIFI_AP_SSID_PREFIX) + "-ESP32";
+    } else {
+        macAddr.replace(":", "");
+        _apSSID = String(WIFI_AP_SSID_PREFIX) + "-" + macAddr.substring(8);
+    }
+    
+    // Configure AP IP settings
     WiFi.softAPConfig(
-        IPAddress(192, 168, 4, 1),    // local_IP
-        IPAddress(192, 168, 4, 1),    // gateway
-        IPAddress(255, 255, 255, 0)   // subnet
+        IPAddress(192, 168, 4, 1),
+        IPAddress(192, 168, 4, 1),
+        IPAddress(255, 255, 255, 0)
     );
     
-    // Start AP with retry logic
-    bool ap_started = false;
-    int retry_count = 0;
-    while (!ap_started && retry_count < 5) {
-        ap_started = WiFi.softAP(apSSID.c_str(), WIFI_AP_PASSWORD, 1, 0, 4); // channel 1, hidden=false, max_connections=4
-        if (!ap_started) {
-            Serial.printf("WiFi AP start attempt %d failed, retrying...\n", retry_count + 1);
-            delay(500);
-            retry_count++;
-        }
-    }
+    // Start AP with configured settings
+    bool ap_started = WiFi.softAP(_apSSID.c_str(), WIFI_AP_PASSWORD, 1, 0, 4);
     
     if (ap_started) {
-        Serial.printf("WiFi AP started: %s\n", apSSID.c_str());
-        Serial.printf("IP address: %s\n", WiFi.softAPIP().toString().c_str());
-        Serial.printf("Connected clients: %d\n", WiFi.softAPgetStationNum());
+        Serial.println("=== WiFi AP Started ===");
+        Serial.printf("SSID: %s\n", _apSSID.c_str());
+        Serial.printf("IP: %s\n", WiFi.softAPIP().toString().c_str());
+        
+        // Set WiFi protocol AFTER AP is started
+        esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
     } else {
-        Serial.println("ERROR: Failed to start WiFi AP after 5 attempts");
-        // Try to recover by restarting WiFi
-        WiFi.disconnect(true);
-        delay(1000);
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP(apSSID.c_str(), WIFI_AP_PASSWORD);
+        Serial.println("ERROR: WiFi AP failed to start");
     }
 }
+
 
 void StandaloneMode::handleRoot() {
     // Serve the static index.html file from SPIFFS
