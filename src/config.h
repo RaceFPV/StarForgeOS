@@ -6,7 +6,7 @@
 #define RX5808_DATA_PIN     6     // SPI MOSI to RX5808 module (matches Hertz-hunter SPI_DATA_PIN)
 #define RX5808_CLK_PIN      4     // SPI SCK to RX5808 module (matches Hertz-hunter SPI_CLK_PIN)
 #define RX5808_SEL_PIN      7     // SPI CS to RX5808 module (matches Hertz-hunter SPI_LE_PIN)
-#define MODE_SWITCH_PIN     1     // Mode selection switch (GND=WiFi, 3.3V=Node)
+#define MODE_SWITCH_PIN     1     // Mode selection switch (GND=WiFi, 3.3V/Float=Node)
 
 // Serial communication (USB CDC on ESP32-C3 SuperMini)
 // ESP32-C3 SuperMini uses USB CDC for communication with PC/RotorHazard
@@ -27,7 +27,7 @@
 #define TIMING_INTERVAL_MS  1     // Core timing loop interval
 #define RSSI_SAMPLES        10    // Number of RSSI samples to average
 #define CROSSING_THRESHOLD  50    // Default RSSI threshold for crossing detection
-#define TIMING_PRIORITY     3     // FreeRTOS task priority (highest - most important)
+#define TIMING_PRIORITY     1     // FreeRTOS task priority (same as main loop for single-core ESP32-C3)
 #define WEB_PRIORITY        2     // Web server priority (medium)
 
 

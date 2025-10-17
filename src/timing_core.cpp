@@ -75,14 +75,16 @@ void TimingCore::begin() {
   
   // Note: RSSI calibration will be done after debug mode is set
   
-  // Create timing task for ESP32-C3 single core (high priority)
+  // Create timing task for ESP32-C3 single core
+  // NOTE: Task starts INACTIVE - must call setActivated(true) after mode initialization
+  // This prevents the task from consuming CPU before serial/WiFi setup completes on single-core ESP32-C3
   xTaskCreate(timingTask, "TimingTask", 4096, this, TIMING_PRIORITY, &timing_task_handle);
   
-  // Mark as activated
-  state.activated = true;
+  // Do NOT activate here - will be activated after mode-specific initialization
+  // state.activated = true;  // REMOVED - see main.cpp setup() for activation timing
   
   if (debug_enabled) {
-    Serial.println("TimingCore: Ready");
+    Serial.println("TimingCore: Ready (inactive until mode init)");
   }
 }
 
@@ -182,6 +184,9 @@ void TimingCore::timingTask(void* parameter) {
       last_process_time = current_time;
       xSemaphoreGive(core->timing_mutex);
     }
+    
+    // Yield to other tasks (especially main loop for serial processing on single-core ESP32-C3)
+    taskYIELD();
     
     // Performance monitoring
     uint32_t loop_end = micros();

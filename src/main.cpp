@@ -31,14 +31,18 @@ void initializeMode();
 void serialEvent();
 
 void setup() {
+  // USB CDC is enabled at boot via platformio.ini
   Serial.begin(UART_BAUD_RATE);
+  delay(50);  // Brief delay for USB CDC to stabilize
   
   // Initialize mode selection pin (floating=Node, GND=WiFi, HIGH=Node)
   pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
   
+  // TEMPORARY: Force RotorHazard node mode for testing
   // Determine initial mode BEFORE any serial output
-  bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
-  current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
+  // bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
+  // current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
+  current_mode = MODE_ROTORHAZARD;  // FORCE NODE MODE FOR TESTING
   
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
@@ -52,18 +56,21 @@ void setup() {
     WiFi.softAP("TRACER", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
   }
   
-  // Initialize core timing system (always active)
+  // Initialize core timing system (creates task but keeps it INACTIVE)
+  // On single-core ESP32-C3, timing task must NOT run until after mode initialization
+  // Otherwise it starves serial/WiFi setup (same issue as WiFi AP initialization)
   timing.begin();
   
   // Set debug mode based on current mode
   bool debug_mode = (current_mode == MODE_STANDALONE);
   timing.setDebugMode(debug_mode);
   
-  // Activate timing core for both modes
-  timing.setActivated(true);
-  
-  // Continue with mode-specific initialization
+  // Initialize mode-specific functionality BEFORE activating timing task
   initializeMode();
+  
+  // NOW activate timing core after mode setup is complete
+  // This ensures serial port and WiFi are fully initialized before timing task runs
+  timing.setActivated(true);
 }
 
 void loop() {
@@ -77,14 +84,17 @@ void loop() {
   if (current_mode == MODE_STANDALONE) {
     standalone.process();
   } else {
+    // In node mode, prioritize serial processing
+    node.handleSerialInput();  // Direct call for faster response
     node.process();
   }
   
-  // Handle serial communication (like Arduino)
+  // Handle serial communication again (belt and suspenders)
   serialEvent();
   
-  // Brief yield to prevent watchdog issues (ESP32-C3 single core)
-  vTaskDelay(pdMS_TO_TICKS(10));
+  // Very brief yield to allow timing task to run (ESP32-C3 single core)
+  // Must be short to ensure responsive serial communication
+  taskYIELD();  // Just yield, don't sleep - faster response
 }
 
 // Serial event handler (like Arduino)

@@ -179,7 +179,8 @@ void NodeMode::process() {
 
 void NodeMode::handleSerialInput() {
     int iterCount = 0;
-    while (Serial.available()) {
+    // Process all available bytes (USB CDC can have multiple bytes queued)
+    while (Serial.available() > 0) {
         uint8_t nextByte = Serial.read();
         
         if (serialMessage.buffer.size == 0) {
@@ -219,7 +220,8 @@ void NodeMode::handleSerialInput() {
             }
         }
         
-        if (++iterCount > 20) return;  // Prevent blocking
+        // Increased iteration limit for better serial responsiveness
+        if (++iterCount > 100) return;  // Prevent blocking (was 20, now 100)
     }
 }
 
