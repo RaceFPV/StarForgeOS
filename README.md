@@ -83,5 +83,3 @@ Common issues and solutions are covered in the [Setup Guide](docs/setup.md). For
 ---
 
 **Ready to race?** Get started with the [Setup Guide](docs/setup.md) and join the FPV racing community!
-
-

@@ -6,3 +6,8 @@
 ![3d](https://github.com/RaceFPV/Tracer/blob/main/tracer-1-3-3d.png "Tracer 1.3 3d")
 
 ![schematic](https://github.com/RaceFPV/Tracer/blob/main/tracer-1-3-schematic.png "Tracer 1.3 schematic")
+
+
+## 📦 3D Printed Case
+
+A 3D printable case for the Tracer board is available: [Tracer 1.4 case.stl](Tracer%201.4%20case.stl). Assembly requires 5 M1.2 screws.
