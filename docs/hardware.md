@@ -1,6 +1,6 @@
 # Tracer Documentation
 
-## Hardware Setup
+## Hardware Setup For RX5808 Version
 
 ### Required Components
 - ESP32-C3 SuperMini development board
@@ -11,14 +11,14 @@
 ### Pin Connections (ESP32-C3 SuperMini - Hertz-hunter Compatible)
 
 ```
-ESP32-C3 Pin | RX5808 Pin   | Description                    | Hertz-hunter
--------------|--------------|--------------------------------|-------------
-GPIO 3       | RSSI         | RSSI analog input (ADC1_CH3)  | RSSI_PIN
-GPIO 6       | DATA         | SPI data line (MOSI)          | SPI_DATA_PIN
-GPIO 4       | CLK          | SPI clock line                | SPI_CLK_PIN
-GPIO 7       | SEL          | SPI chip select (LE pin)      | SPI_LE_PIN
-3.3V         | VCC          | Power supply                  | -
-GND          | GND          | Ground                        | -
+ESP32-C3 Pin | RX5808 Pin   | Description   
+-------------|--------------|------------------------------
+GPIO 3       | RSSI         | RSSI analog input (ADC1_CH3)
+GPIO 6       | DATA CH1     | SPI data line (MOSI)
+GPIO 4       | CLK CH3      | SPI clock line
+GPIO 7       | SEL CH2      | SPI chip select (LE pin)
+3.3V         | VCC          | Power supply
+GND          | GND          | Ground
 ```
 
 
@@ -31,6 +31,8 @@ Nothing      | Default      | RotorHazard node mode (floating)
 GND          | Position 1   | RotorHazard node mode
 3.3V         | Position 2   | WiFi standalone mode
 ```
+
+<a href="tracer-rx5808-ver.png"><img src="tracer-rx5808-ver.png" width="300" alt="Tracer RX5808 Hardware" /></a>
 
 **Important**: 
 - **Nothing connected** (floating) = RotorHazard node mode (default)

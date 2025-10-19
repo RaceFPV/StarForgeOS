@@ -34,6 +34,10 @@ Switch between modes instantly - no firmware changes needed. Use a simple jumper
 
 ## 🛠️ Quick Start
 
+**Want a fully assembled version?** Pre-built boards are available at [racefpv.io](https://racefpv.io)
+
+> **Building your own?** Check out the [DIY Hardware Guide](docs/hardware.md) for the RX5808-based version with complete wiring diagrams and PCB design tips.
+
 ### Standalone Mode (WiFi)
 1. Power on the device
 2. Connect to WiFi network "tracer-XXXX"
