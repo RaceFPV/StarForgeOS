@@ -10,6 +10,9 @@
 #define RX5808_MIN_TUNETIME 35    // ms - wait after freq change before reading RSSI
 #define RX5808_MIN_BUSTIME  30    // ms - minimum time between freq changes
 
+// Static variable to track last RX5808 bus access time (shared across all instances)
+static uint32_t lastRX5808BusTimeMs = 0;
+
 TimingCore::TimingCore() {
   // Initialize state
   memset(&state, 0, sizeof(state));
@@ -223,16 +226,13 @@ void TimingCore::timingTask(void* parameter) {
 
 uint8_t TimingCore::readRawRSSI() {
   // Check if frequency was recently changed - RSSI is unstable during tuning
-  // This is critical for accurate readings after frequency changes
+  // Wait for tuning to complete before reading (same as RotorHazard)
   if (recent_freq_change) {
-    uint32_t elapsed = millis() - freq_change_time;
-    if (elapsed < RX5808_MIN_TUNETIME) {
-      // RSSI is still unstable, return 0
-      return 0;
-    } else {
-      // Tuning complete, clear flag
-      recent_freq_change = false;
+    uint32_t timeVal = millis() - freq_change_time;
+    if (timeVal < RX5808_MIN_TUNETIME) {
+      delay(RX5808_MIN_TUNETIME - timeVal);  // wait until after-tune-delay time is fulfilled
     }
+    recent_freq_change = false;  // don't need to check again until next freq change
   }
   
   // Read 12-bit ADC value (0-4095 on ESP32)
@@ -335,7 +335,7 @@ void TimingCore::setupRX5808() {
   // This ensures reliable operation after power-on
   resetRX5808Module();
   
-  // CRITICAL: Configure power settings to optimize performance
+  // CRITICAL: Configure power settings (called after reset, same as RotorHazard)
   // This disables unused features and reduces power consumption
   configureRX5808Power();
   
@@ -345,6 +345,13 @@ void TimingCore::setupRX5808() {
 }
 
 void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
+  // Check if enough time has elapsed since last RX5808 bus access
+  // This prevents bus conflicts and ensures reliable communication
+  uint32_t timeVal = millis() - lastRX5808BusTimeMs;
+  if (timeVal < RX5808_MIN_BUSTIME) {
+    delay(RX5808_MIN_BUSTIME - timeVal);  // wait until after-bus-delay time is fulfilled
+  }
+  
   if (freq_mhz < MIN_FREQ || freq_mhz > MAX_FREQ) {
     if (debug_enabled) {
       Serial.printf("Invalid frequency: %d MHz (valid range: %d-%d)\n", freq_mhz, MIN_FREQ, MAX_FREQ);
@@ -352,8 +359,8 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     return;
   }
   
-  // Calculate register value using standard RX5808 formula from datasheet
-  // Formula: tf = (freq - 479) / 2, then N = tf / 32, A = tf % 32, reg = (N << 7) + A
+  // Calculate register value using RX5808 formula (from RotorHazard node)
+  // Formula: tf = (freq - 479) / 2, N = tf / 32, A = tf % 32, reg = (N << 7) + A
   uint16_t tf = (freq_mhz - 479) / 2;
   uint16_t N = tf / 32;
   uint16_t A = tf % 32;
@@ -404,6 +411,7 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   // Mark frequency change time to prevent unstable RSSI reads
   recent_freq_change = true;
   freq_change_time = millis();
+  lastRX5808BusTimeMs = freq_change_time;  // Track last bus access time
   
   if (debug_enabled) {
     Serial.printf("Frequency set to %d MHz (RSSI unstable for %dms)\n", freq_mhz, RX5808_MIN_TUNETIME);
@@ -576,7 +584,7 @@ TimingState TimingCore::getState() const {
 
 uint8_t TimingCore::getCurrentRSSI() const {
   uint8_t rssi = 0;
-  if (xSemaphoreTake(timing_mutex, pdMS_TO_TICKS(10))) {
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
     rssi = state.current_rssi;
     xSemaphoreGive(timing_mutex);
   }
@@ -585,7 +593,7 @@ uint8_t TimingCore::getCurrentRSSI() const {
 
 uint8_t TimingCore::getPeakRSSI() const {
   uint8_t peak = 0;
-  if (xSemaphoreTake(timing_mutex, pdMS_TO_TICKS(10))) {
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
     peak = state.peak_rssi;
     xSemaphoreGive(timing_mutex);
   }

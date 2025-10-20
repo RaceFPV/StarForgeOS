@@ -25,7 +25,7 @@
 
 // Timing configuration
 #define TIMING_INTERVAL_MS  1     // Core timing loop interval
-#define RSSI_SAMPLES        10    // Number of RSSI samples to average
+#define RSSI_SAMPLES        50    // Number of RSSI samples to average (50ms smoothing window)
 #define CROSSING_THRESHOLD  50    // Default RSSI threshold for crossing detection
 #define TIMING_PRIORITY     1     // FreeRTOS task priority (same as main loop for single-core ESP32-C3)
 #define WEB_PRIORITY        2     // Web server priority (medium)

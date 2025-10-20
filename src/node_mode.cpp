@@ -138,17 +138,26 @@ void NodeMode::begin(TimingCore* timingCore) {
     _timingCore = timingCore;
     serialMessage.nodeMode = this;  // Set pointer for Message to access NodeMode data
     
-    // Initialize with default settings
-    _settings.vtxFreq = 5800;
-    _settings.enterAtLevel = 96;
-    _settings.exitAtLevel = 80;
-    _nodeIndex = 0;
-    _slotIndex = 0;
+    // Initialize with default settings ONLY if not already set
+    // This prevents resetting frequency when mode is re-initialized
+    static bool first_init = true;
+    if (first_init) {
+        _settings.vtxFreq = 5800;
+        _settings.enterAtLevel = 96;
+        _settings.exitAtLevel = 80;
+        _nodeIndex = 0;
+        _slotIndex = 0;
+        first_init = false;
+        
+        // Set default frequency and threshold ONLY on first initialization
+        if (_timingCore) {
+            _timingCore->setFrequency(_settings.vtxFreq);
+            _timingCore->setThreshold(_settings.enterAtLevel);
+        }
+    }
     
-    // Activate timing core for node mode and set default frequency
+    // Always ensure timing core is activated for node mode
     if (_timingCore) {
-        _timingCore->setFrequency(_settings.vtxFreq);
-        _timingCore->setThreshold(_settings.enterAtLevel);
         _timingCore->setActivated(true);
     }
     
@@ -236,10 +245,14 @@ void Message::handleWriteCommand(bool serialFlag) {
     switch (command) {
         case WRITE_FREQUENCY: {
             uint16_t freq = buffer.read16();
-            // Set frequency via timing core
+            // Set frequency via timing core AND update settings
             if (nodeMode && nodeMode->_timingCore) {
+                nodeMode->_settings.vtxFreq = freq;  // Update stored settings
                 nodeMode->_timingCore->setFrequency(freq);
                 nodeMode->_timingCore->setActivated(true);  // Activate node after frequency is set
+                // Reset peak tracking when frequency changes (same as RotorHazard)
+                TimingState state = nodeMode->_timingCore->getState();
+                state.peak_rssi = 0;
             }
             settingChangedFlags |= FREQ_SET | FREQ_CHANGED;
             break;
@@ -247,8 +260,9 @@ void Message::handleWriteCommand(bool serialFlag) {
         
         case WRITE_ENTER_AT_LEVEL: {
             uint8_t level = buffer.read8();
-            // Set enter threshold via timing core
+            // Set enter threshold via timing core AND update settings
             if (nodeMode && nodeMode->_timingCore) {
+                nodeMode->_settings.enterAtLevel = level;  // Update stored settings
                 nodeMode->_timingCore->setThreshold(level);
             }
             settingChangedFlags |= ENTERAT_CHANGED;
@@ -257,8 +271,9 @@ void Message::handleWriteCommand(bool serialFlag) {
         
         case WRITE_EXIT_AT_LEVEL: {
             uint8_t level = buffer.read8();
-            // Set exit threshold via timing core (same as enter for now)
+            // Set exit threshold via timing core (same as enter for now) AND update settings
             if (nodeMode && nodeMode->_timingCore) {
+                nodeMode->_settings.exitAtLevel = level;  // Update stored settings
                 nodeMode->_timingCore->setThreshold(level);
             }
             settingChangedFlags |= EXITAT_CHANGED;
