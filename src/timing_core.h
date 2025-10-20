@@ -103,6 +103,12 @@ public:
   void setLapCallback(LapCallback callback) { lap_callback = callback; }
   void setCrossingCallback(CrossingCallback callback) { crossing_callback = callback; }
   
+  // Hardware diagnostics
+  void testSPIPins();
+  void testChannelPinMode();
+  void testChannelPinModeLow();
+  void testChannelPinModeHigh();
+  
 private:
   LapCallback lap_callback = nullptr;
   CrossingCallback crossing_callback = nullptr;

@@ -43,6 +43,10 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _server.on("/api/set_frequency", HTTP_POST, [this]() { handleSetFrequency(); });
     _server.on("/api/set_threshold", HTTP_POST, [this]() { handleSetThreshold(); });
     _server.on("/api/get_channels", HTTP_GET, [this]() { handleGetChannels(); });
+    _server.on("/api/test_hardware", HTTP_POST, [this]() { handleTestHardware(); });
+    _server.on("/api/test_channel_mode", HTTP_POST, [this]() { handleTestChannelMode(); });
+    _server.on("/api/test_channel_mode_low", HTTP_POST, [this]() { handleTestChannelModeLow(); });
+    _server.on("/api/test_channel_mode_high", HTTP_POST, [this]() { handleTestChannelModeHigh(); });
     _server.on("/style.css", HTTP_GET, [this]() { handleStyleCSS(); });
     _server.on("/app.js", HTTP_GET, [this]() { handleAppJS(); });
     _server.onNotFound([this]() { handleNotFound(); });
@@ -1096,6 +1100,50 @@ void StandaloneMode::handleGetChannels() {
     json += "}}";
     
     _server.send(200, "application/json", json);
+}
+
+void StandaloneMode::handleTestHardware() {
+    Serial.println("\n=== Hardware Test Requested from Web UI ===");
+    
+    if (_timingCore) {
+        _timingCore->testSPIPins();
+        _server.send(200, "application/json", "{\"status\":\"test_complete\",\"message\":\"Check serial monitor for results\"}");
+    } else {
+        _server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Timing core not available\"}");
+    }
+}
+
+void StandaloneMode::handleTestChannelMode() {
+    Serial.println("\n=== Channel Pin Mode Test Requested from Web UI ===");
+    
+    if (_timingCore) {
+        _timingCore->testChannelPinMode();
+        _server.send(200, "application/json", "{\"status\":\"test_complete\",\"message\":\"Check serial monitor for detailed results\"}");
+    } else {
+        _server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Timing core not available\"}");
+    }
+}
+
+void StandaloneMode::handleTestChannelModeLow() {
+    Serial.println("\n=== Channel Pin Mode LOW Test Requested from Web UI ===");
+    
+    if (_timingCore) {
+        _timingCore->testChannelPinModeLow();
+        _server.send(200, "application/json", "{\"status\":\"pins_set_low\",\"message\":\"All pins set LOW. Expected: 5865 MHz (A1). Check serial monitor and test with generator.\"}");
+    } else {
+        _server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Timing core not available\"}");
+    }
+}
+
+void StandaloneMode::handleTestChannelModeHigh() {
+    Serial.println("\n=== Channel Pin Mode HIGH Test Requested from Web UI ===");
+    
+    if (_timingCore) {
+        _timingCore->testChannelPinModeHigh();
+        _server.send(200, "application/json", "{\"status\":\"pins_set_high\",\"message\":\"All pins set HIGH. Expected: 5725 MHz (A8). Check serial monitor and test with generator.\"}");
+    } else {
+        _server.send(500, "application/json", "{\"status\":\"error\",\"message\":\"Timing core not available\"}");
+    }
 }
 
 

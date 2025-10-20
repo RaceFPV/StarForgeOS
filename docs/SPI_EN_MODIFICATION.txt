@@ -1,0 +1,206 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   RTC6715 SPI_EN PIN MODIFICATION GUIDE                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│  CURRENT CONFIGURATION (BROKEN - Channel Pin Mode)                       │
+└──────────────────────────────────────────────────────────────────────────┘
+
+         RTC6715 Chip
+    ┌─────────────────────┐
+    │                     │
+    │   SPI_EN (Pin 13)   │─────[Resistor 0Ω/10kΩ]───── GND
+    │                     │            ↑
+    │      CH1, CH2, CH3  │         PROBLEM: This grounds SPI_EN
+    │                     │         Result: Channel Pin Mode active
+    └─────────────────────┘         SPI commands IGNORED!
+
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│  REQUIRED CONFIGURATION (WORKING - SPI Mode)                             │
+└──────────────────────────────────────────────────────────────────────────┘
+
+         RTC6715 Chip
+    ┌─────────────────────┐
+    │                     │
+    │   SPI_EN (Pin 13)   │─────(floating/pulled high)
+    │                     │            ↑
+    │      CH1, CH2, CH3  │         SOLUTION: Remove/cut connection to GND
+    │      (ignored)      │         Result: SPI Mode active
+    │                     │         SPI commands WORK! ✓
+    └─────────────────────┘
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                        MODIFICATION STEPS                                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+OPTION 1: Remove Pull-Down Resistor (Most Common)
+──────────────────────────────────────────────────
+
+  1. Locate small resistor near RTC6715 chip
+  2. Often labeled: R1, R2, R3, "SPI", or near pin 13
+  3. Use soldering iron to heat both ends
+  4. Lift resistor with tweezers
+  5. Clean pads with solder wick
+
+
+OPTION 2: Cut PCB Trace (If No Resistor Present)
+─────────────────────────────────────────────────
+
+  1. Locate trace from SPI_EN (pin 13) to ground plane
+  2. Use sharp hobby knife to cut trace
+  3. Verify with multimeter (continuity test)
+  4. Should read open circuit between SPI_EN and GND
+
+
+OPTION 3: Drill Via (Advanced - If Connected Through Via)
+──────────────────────────────────────────────────────────
+
+  1. Locate via connecting SPI_EN to ground plane
+  2. Use 0.5mm drill bit to carefully drill out via
+  3. Clean with isopropyl alcohol
+  4. Verify with multimeter
+
+
+OPTION 4: Add Pull-Up Resistor (Most Reliable - Recommended)
+─────────────────────────────────────────────────────────────
+
+  1. First, do Option 1, 2, or 3 to disconnect from GND
+  2. Then add 10kΩ resistor from SPI_EN to 3.3V
+  3. This ensures SPI_EN stays HIGH reliably
+  4. Prevents accidental grounding from touching/flex
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                      VERIFICATION PROCEDURE                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+BEFORE MODIFICATION (Confirm the Problem):
+───────────────────────────────────────────
+
+  [✓] Use multimeter in continuity mode
+  [✓] Probe between SPI_EN pin and GND
+  [✓] Should beep/show continuity → Problem confirmed!
+
+
+AFTER MODIFICATION (Verify the Fix):
+─────────────────────────────────────
+
+  [✓] Use multimeter in continuity mode
+  [✓] Probe between SPI_EN pin and GND
+  [✓] Should NOT beep/show open circuit → Fix confirmed!
+  
+  [✓] Optional: Measure voltage on SPI_EN
+  [✓] Should read ~3.3V (with pull-up) or floating (~1-3V without)
+  [✓] Should NOT be 0V (ground)
+
+
+SOFTWARE TEST (Final Verification):
+────────────────────────────────────
+
+  [✓] Flash updated firmware
+  [✓] Boot in WiFi mode (MODE_SWITCH_PIN to GND)
+  [✓] Connect to Tracer-XXXX AP
+  [✓] Open serial monitor (921600 baud)
+  [✓] Change frequency from R1 to R2 in web UI
+  [✓] RSSI should drop dramatically if no signal on R2
+  [✓] SUCCESS! Frequency changes now work
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                           COMPONENT LOCATING                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+WHERE TO LOOK:
+──────────────
+
+  RTC6715 IC Package (Top View - Looking Down at Chip):
+  
+       Pin 1 marking (dot or notch)
+            ↓
+    ┌────────────────┐
+    │ •              │  Pin 1-4:  SPI/Control
+    │                │  Pin 5-8:  Power/Ground
+    │   RTC6715      │  Pin 9-12: RF/Analog
+    │                │  Pin 13:   SPI_EN ← FIND THIS!
+    │                │  Pin 14+:  Other
+    └────────────────┘
+    
+  LOOK FOR RESISTOR:
+  
+    [Chip] ──→ [tiny resistor] ──→ [Ground Plane]
+                  ↑
+              Remove this!
+              
+  Common locations:
+    • Directly next to pin 13
+    • On back of PCB under chip
+    • Near edge of RTC6715 footprint
+    • Connected to ground pour/plane
+
+
+TOOLS NEEDED:
+──────────────
+
+  [✓] Soldering iron (temperature controlled, 300-350°C)
+  [✓] Fine tip for soldering iron
+  [✓] Tweezers (for removing SMD resistor)
+  [✓] Solder wick or desoldering pump
+  [✓] Multimeter (continuity/resistance mode)
+  [✓] Magnifying glass or microscope (helpful for SMD work)
+  [✓] Good lighting
+  [✓] Steady hands / helping hands tool
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                            SAFETY WARNINGS                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+  ⚠️  DISCONNECT POWER before modification
+  ⚠️  Use proper ESD protection (wrist strap/mat)
+  ⚠️  Don't overheat the chip (max 350°C, short contact time)
+  ⚠️  Verify with multimeter BEFORE powering on
+  ⚠️  Double-check you're modifying correct pin
+  ⚠️  If unsure, seek experienced help
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                        TROUBLESHOOTING TIPS                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+IF MODIFICATION DOESN'T WORK:
+──────────────────────────────
+
+  1. Re-check continuity: SPI_EN should NOT connect to GND
+  2. Check for solder bridges between adjacent pins
+  3. Verify 3.3V power is reaching the chip (measure with multimeter)
+  4. Check SPI data/clock pins for continuity to ESP32
+  5. Try adding explicit pull-up resistor (10kΩ to 3.3V)
+  6. Consult RTC6715 datasheet for your specific chip revision
+
+
+ALTERNATIVE IF CAN'T MODIFY BOARD:
+───────────────────────────────────
+
+  • Use a standard RX5808 module (SPI already enabled)
+  • Wire it externally to your Tracer board
+  • Keep same pin connections: DATA, CLK, SEL, RSSI
+  • Standard modules typically work out-of-box with SPI
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         SUPPORT & RESOURCES                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+  📖 Detailed Guide: docs/RTC6715_TROUBLESHOOTING.md
+  📖 Summary: docs/FREQUENCY_FIX_SUMMARY.md
+  🔧 Test Command: curl -X POST http://192.168.4.1/api/test_hardware
+  
+  For more help, check:
+  • RTC6715 datasheet
+  • RX5808 SPI modification guides (same principle)
+  • FPV timing community forums
+
+═══════════════════════════════════════════════════════════════════════════════
+
