@@ -31,9 +31,8 @@ void initializeMode();
 void serialEvent();
 
 void setup() {
-  // USB CDC is enabled at boot via platformio.ini
   Serial.begin(UART_BAUD_RATE);
-  delay(50);  // Brief delay for USB CDC to stabilize
+  delay(50);  // Brief delay for USB to stabilize
   
   // Initialize mode selection pin (floating=Node, GND=WiFi, HIGH=Node)
   pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
