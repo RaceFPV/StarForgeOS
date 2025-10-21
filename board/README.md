@@ -11,3 +11,8 @@
 ## 📦 3D Printed Case
 
 A 3D printable case for the Tracer board is available: [Tracer 1.4 case.stl](Tracer%201.4%20case.stl). Assembly requires 5 M1.2 screws.
+
+
+# DIY version
+
+Tracer-DIY is available if you already have rx5808 boards, or wish to use the older modules as part of your build.
