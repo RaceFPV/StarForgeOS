@@ -18,10 +18,16 @@ TimingCore::TimingCore() {
   memset(&state, 0, sizeof(state));
   state.threshold = CROSSING_THRESHOLD;
   state.frequency_mhz = DEFAULT_FREQ;
+  state.nadir_rssi = 255;  // Initialize to max value
+  state.pass_rssi_nadir = 255;
+  state.last_rssi = 0;
+  state.rssi_change = 0;
   
   // Initialize buffers
   memset(lap_buffer, 0, sizeof(lap_buffer));
   memset(rssi_samples, 0, sizeof(rssi_samples));
+  memset(peak_buffer, 0, sizeof(peak_buffer));
+  memset(nadir_buffer, 0, sizeof(nadir_buffer));
   
   lap_write_index = 0;
   lap_read_index = 0;
@@ -30,6 +36,16 @@ TimingCore::TimingCore() {
   debug_enabled = false; // Default to no debug output
   recent_freq_change = false;
   freq_change_time = 0;
+  
+  // Initialize extremum tracking
+  peak_write_index = 0;
+  peak_read_index = 0;
+  nadir_write_index = 0;
+  nadir_read_index = 0;
+  
+  memset(&current_peak, 0, sizeof(current_peak));
+  memset(&current_nadir, 0, sizeof(current_nadir));
+  current_nadir.rssi = 255;
   
   // Initialize FreeRTOS objects
   timing_task_handle = nullptr;
@@ -154,6 +170,17 @@ void TimingCore::timingTask(void* parameter) {
         core->state.peak_rssi = filtered_rssi;
       }
       
+      // Update nadir tracking
+      if (filtered_rssi < core->state.nadir_rssi) {
+        core->state.nadir_rssi = filtered_rssi;
+      }
+      if (filtered_rssi < core->state.pass_rssi_nadir) {
+        core->state.pass_rssi_nadir = filtered_rssi;
+      }
+      
+      // Process extremums for marshal mode history
+      core->processExtremums(current_time, filtered_rssi);
+      
       // Detect crossing events
       bool crossing_detected = core->detectCrossing(filtered_rssi);
       
@@ -172,6 +199,8 @@ void TimingCore::timingTask(void* parameter) {
           uint32_t crossing_duration = current_time - core->state.crossing_start;
           if (crossing_duration > 100) { // Minimum 100ms crossing to avoid noise
             core->recordLap(current_time, core->state.peak_rssi);
+            // Reset pass nadir after crossing ends
+            core->state.pass_rssi_nadir = 255;
           }
           if (core->debug_enabled) {
             Serial.printf("Crossing ended - Duration: %dms\n", crossing_duration);
@@ -306,6 +335,98 @@ void TimingCore::recordLap(uint32_t timestamp, uint8_t peak_rssi) {
   // Notify callback if registered
   if (lap_callback) {
     lap_callback(lap);
+  }
+}
+
+// Extremum tracking implementation (for marshal mode)
+void TimingCore::processExtremums(uint32_t timestamp, uint8_t filtered_rssi) {
+  // Detect RSSI change direction
+  int8_t new_change = 0;
+  if (filtered_rssi > state.last_rssi) {
+    new_change = 1;  // Rising
+  } else if (filtered_rssi < state.last_rssi) {
+    new_change = -1; // Falling
+  }
+  
+  // Detect when trend changes (peak or nadir found)
+  if (state.rssi_change != new_change && new_change != 0) {
+    if (state.rssi_change > 0) {
+      // Was rising, now falling = peak found
+      finalizePeak(timestamp);
+    } else if (state.rssi_change < 0) {
+      // Was falling, now rising = nadir found
+      finalizeNadir(timestamp);
+    }
+  }
+  
+  // Update current extremums
+  if (new_change > 0 || state.rssi_change == 0) {
+    // Rising or first sample - track peak
+    if (filtered_rssi > current_peak.rssi || !current_peak.valid) {
+      current_peak.rssi = filtered_rssi;
+      if (!current_peak.valid) {
+        current_peak.first_time = timestamp;
+        current_peak.valid = true;
+      }
+    }
+  }
+  
+  if (new_change < 0 || state.rssi_change == 0) {
+    // Falling or first sample - track nadir
+    if (filtered_rssi < current_nadir.rssi || !current_nadir.valid) {
+      current_nadir.rssi = filtered_rssi;
+      if (!current_nadir.valid) {
+        current_nadir.first_time = timestamp;
+        current_nadir.valid = true;
+      }
+    }
+  }
+  
+  // Update state
+  state.last_rssi = filtered_rssi;
+  if (new_change != 0) {
+    state.rssi_change = new_change;
+  }
+}
+
+void TimingCore::finalizePeak(uint32_t timestamp) {
+  if (current_peak.valid && current_peak.rssi > 0) {
+    current_peak.duration = timestamp - current_peak.first_time;
+    bufferPeak(current_peak);
+  }
+  
+  // Reset for next peak
+  memset(&current_peak, 0, sizeof(current_peak));
+}
+
+void TimingCore::finalizeNadir(uint32_t timestamp) {
+  if (current_nadir.valid && current_nadir.rssi < 255) {
+    current_nadir.duration = timestamp - current_nadir.first_time;
+    bufferNadir(current_nadir);
+  }
+  
+  // Reset for next nadir
+  memset(&current_nadir, 0, sizeof(current_nadir));
+  current_nadir.rssi = 255;
+}
+
+void TimingCore::bufferPeak(const Extremum& peak) {
+  peak_buffer[peak_write_index] = peak;
+  peak_write_index = (peak_write_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
+  
+  // Check for overflow (if write catches read, drop oldest)
+  if (peak_write_index == peak_read_index) {
+    peak_read_index = (peak_read_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
+  }
+}
+
+void TimingCore::bufferNadir(const Extremum& nadir) {
+  nadir_buffer[nadir_write_index] = nadir;
+  nadir_write_index = (nadir_write_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
+  
+  // Check for overflow (if write catches read, drop oldest)
+  if (nadir_write_index == nadir_read_index) {
+    nadir_read_index = (nadir_read_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
   }
 }
 
@@ -563,12 +684,28 @@ void TimingCore::reset() {
     state.lap_count = 0;
     state.last_lap_time = 0;
     state.peak_rssi = 0;
+    state.nadir_rssi = 255;
+    state.pass_rssi_nadir = 255;
     state.crossing_active = false;
+    state.last_rssi = 0;
+    state.rssi_change = 0;
     
     // Clear lap buffer
     memset(lap_buffer, 0, sizeof(lap_buffer));
     lap_write_index = 0;
     lap_read_index = 0;
+    
+    // Clear extremum buffers
+    memset(peak_buffer, 0, sizeof(peak_buffer));
+    memset(nadir_buffer, 0, sizeof(nadir_buffer));
+    peak_write_index = 0;
+    peak_read_index = 0;
+    nadir_write_index = 0;
+    nadir_read_index = 0;
+    
+    memset(&current_peak, 0, sizeof(current_peak));
+    memset(&current_nadir, 0, sizeof(current_nadir));
+    current_nadir.rssi = 255;
     
     // Timing reset
     xSemaphoreGive(timing_mutex);
@@ -602,6 +739,55 @@ LapData TimingCore::getLastLap() {
 
 uint8_t TimingCore::getAvailableLaps() {
   return (lap_write_index - lap_read_index + MAX_LAPS_STORED) % MAX_LAPS_STORED;
+}
+
+// Extremum data access methods (for marshal mode)
+bool TimingCore::hasPendingPeak() {
+  return peak_read_index != peak_write_index;
+}
+
+bool TimingCore::hasPendingNadir() {
+  return nadir_read_index != nadir_write_index;
+}
+
+Extremum TimingCore::getNextPeak() {
+  if (!hasPendingPeak()) {
+    Extremum empty = {0};
+    return empty;
+  }
+  
+  Extremum peak = peak_buffer[peak_read_index];
+  peak_read_index = (peak_read_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
+  return peak;
+}
+
+Extremum TimingCore::getNextNadir() {
+  if (!hasPendingNadir()) {
+    Extremum empty = {255, 0, 0, false};
+    return empty;
+  }
+  
+  Extremum nadir = nadir_buffer[nadir_read_index];
+  nadir_read_index = (nadir_read_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
+  return nadir;
+}
+
+uint8_t TimingCore::getNadirRSSI() const {
+  uint8_t nadir = 255;
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
+    nadir = state.nadir_rssi;
+    xSemaphoreGive(timing_mutex);
+  }
+  return nadir;
+}
+
+uint8_t TimingCore::getPassNadirRSSI() const {
+  uint8_t nadir = 255;
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
+    nadir = state.pass_rssi_nadir;
+    xSemaphoreGive(timing_mutex);
+  }
+  return nadir;
 }
 
 // Thread-safe state access methods

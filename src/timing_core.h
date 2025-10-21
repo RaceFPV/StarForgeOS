@@ -14,10 +14,21 @@ struct LapData {
   bool valid;               // Whether this lap data is valid
 };
 
+// Structure to hold RSSI extremum data (for marshal mode history)
+struct Extremum {
+  uint8_t rssi;             // RSSI value at extremum
+  uint32_t first_time;      // Timestamp when extremum started (milliseconds)
+  uint16_t duration;        // Duration extremum was held (milliseconds)
+  bool valid;               // Whether this extremum is valid
+};
+
+#define EXTREMUM_BUFFER_SIZE 256  // Circular buffer for extremums (must be power of 2)
+
 // Structure to hold current timing state
 struct TimingState {
   uint8_t current_rssi;     // Current filtered RSSI value
   uint8_t peak_rssi;        // Peak RSSI since last reset
+  uint8_t nadir_rssi;       // Lowest RSSI since last reset
   uint8_t threshold;        // Current crossing threshold
   bool crossing_active;     // Whether we're currently in a crossing
   uint32_t crossing_start;  // When current crossing started
@@ -25,6 +36,11 @@ struct TimingState {
   uint16_t lap_count;       // Number of laps completed
   uint16_t frequency_mhz;   // Current RX frequency
   bool activated;           // Whether timing is active
+  
+  // Extremum tracking state
+  uint8_t last_rssi;        // Previous RSSI for trend detection
+  int8_t rssi_change;       // >0 rising, <0 falling, 0 stable
+  uint8_t pass_rssi_nadir;  // Lowest RSSI since end of last pass
 };
 
 class TimingCore {
@@ -38,6 +54,19 @@ private:
   uint16_t rssi_samples[RSSI_SAMPLES];
   uint8_t sample_index;
   bool samples_filled;
+  
+  // Extremum tracking (circular buffers for marshal mode)
+  Extremum peak_buffer[EXTREMUM_BUFFER_SIZE];
+  uint8_t peak_write_index;
+  uint8_t peak_read_index;
+  
+  Extremum nadir_buffer[EXTREMUM_BUFFER_SIZE];
+  uint8_t nadir_write_index;
+  uint8_t nadir_read_index;
+  
+  // Current extremum being tracked
+  Extremum current_peak;
+  Extremum current_nadir;
   
   // FreeRTOS task handle for ESP32-C3 single core
   TaskHandle_t timing_task_handle;
@@ -64,6 +93,13 @@ private:
   
   // Lap processing
   void recordLap(uint32_t timestamp, uint8_t peak_rssi);
+  
+  // Extremum tracking
+  void processExtremums(uint32_t timestamp, uint8_t filtered_rssi);
+  void finalizePeak(uint32_t timestamp);
+  void finalizeNadir(uint32_t timestamp);
+  void bufferPeak(const Extremum& peak);
+  void bufferNadir(const Extremum& nadir);
   
   // FreeRTOS task function
   static void timingTask(void* parameter);
@@ -95,6 +131,14 @@ public:
   LapData getNextLap();
   LapData getLastLap();
   uint8_t getAvailableLaps();
+  
+  // Extremum data access (for marshal mode)
+  bool hasPendingPeak();
+  bool hasPendingNadir();
+  Extremum getNextPeak();
+  Extremum getNextNadir();
+  uint8_t getNadirRSSI() const;
+  uint8_t getPassNadirRSSI() const;
   
   // Callbacks for mode-specific handling
   typedef void (*LapCallback)(const LapData& lap);

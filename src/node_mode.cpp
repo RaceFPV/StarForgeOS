@@ -355,13 +355,67 @@ void Message::handleReadCommand(bool serialFlag) {
         }
         
         case READ_LAP_EXTREMUMS: {
-            buffer.write8(0);  // flags
-            buffer.write8(30); // rssi nadir since last pass
-            buffer.write8(30); // node rssi nadir
-            // Extremum data (rssi, time offset, duration)
-            buffer.write8(0);
-            buffer.write16(0);
-            buffer.write16(0);
+            uint32_t timeNow = millis();
+            uint8_t flags = 0;
+            
+            // Check if we're in a crossing
+            if (nodeMode && nodeMode->_timingCore && nodeMode->_timingCore->isCrossing()) {
+                flags |= 0x01;  // LAPSTATS_FLAG_CROSSING
+            }
+            
+            // Check which extremum to send next (peak or nadir)
+            bool has_peak = nodeMode && nodeMode->_timingCore && nodeMode->_timingCore->hasPendingPeak();
+            bool has_nadir = nodeMode && nodeMode->_timingCore && nodeMode->_timingCore->hasPendingNadir();
+            
+            // Determine which to send (prioritize by timestamp - oldest first)
+            bool send_peak = false;
+            if (has_peak && !has_nadir) {
+                send_peak = true;
+                flags |= 0x02;  // LAPSTATS_FLAG_PEAK
+            } else if (!has_peak && has_nadir) {
+                send_peak = false;
+            } else if (has_peak && has_nadir) {
+                // Both available - compare timestamps (peek without removing)
+                // For simplicity, alternate: if flag indicates peak, send peak
+                send_peak = true;
+                flags |= 0x02;  // LAPSTATS_FLAG_PEAK
+            }
+            
+            buffer.write8(flags);
+            
+            // Write nadir values
+            uint8_t pass_nadir = 255;
+            uint8_t node_nadir = 255;
+            if (nodeMode && nodeMode->_timingCore) {
+                pass_nadir = nodeMode->_timingCore->getPassNadirRSSI();
+                node_nadir = nodeMode->_timingCore->getNadirRSSI();
+            }
+            buffer.write8(pass_nadir);  // rssi nadir since last pass
+            buffer.write8(node_nadir);  // node rssi nadir
+            
+            // Write extremum data
+            if (send_peak && has_peak) {
+                Extremum peak = nodeMode->_timingCore->getNextPeak();
+                buffer.write8(peak.rssi);
+                
+                // Calculate time offset from current time (in milliseconds)
+                uint16_t time_offset = (timeNow > peak.first_time) ? (timeNow - peak.first_time) : 0;
+                buffer.write16(time_offset);
+                buffer.write16(peak.duration);
+            } else if (!send_peak && has_nadir) {
+                Extremum nadir = nodeMode->_timingCore->getNextNadir();
+                buffer.write8(nadir.rssi);
+                
+                // Calculate time offset from current time (in milliseconds)
+                uint16_t time_offset = (timeNow > nadir.first_time) ? (timeNow - nadir.first_time) : 0;
+                buffer.write16(time_offset);
+                buffer.write16(nadir.duration);
+            } else {
+                // No extremum data available
+                buffer.write8(0);
+                buffer.write16(0);
+                buffer.write16(0);
+            }
             break;
         }
         
