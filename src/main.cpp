@@ -46,9 +46,8 @@ void setup() {
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
     Serial.println();
-    Serial.println("=== Tracer ESP32-C3 Timer ===");
+    Serial.println("=== Tracer ESP32 Timer ===");
     Serial.println("Version: 1.0.0");
-    Serial.println("Single-core RISC-V processor");
     Serial.println();
     Serial.println("Mode: STANDALONE/WIFI (Pin 0 = LOW/GND)");
     Serial.println("Initializing timing core...");
