@@ -1,17 +1,24 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Hardware pin definitions for ESP32-C3 SuperMini (Hertz-hunter compatible)
-#define RSSI_INPUT_PIN      3     // ADC1_CH3 - RSSI input from RX5808 (matches Hertz-hunter RSSI_PIN)
-#define RX5808_DATA_PIN     6     // SPI MOSI to RX5808 module (matches Hertz-hunter SPI_DATA_PIN)
-#define RX5808_CLK_PIN      4     // SPI SCK to RX5808 module (matches Hertz-hunter SPI_CLK_PIN)
-#define RX5808_SEL_PIN      7     // SPI CS to RX5808 module (matches Hertz-hunter SPI_LE_PIN)
-#define MODE_SWITCH_PIN     1     // Mode selection switch (GND=WiFi, 3.3V/Float=Node)
-
-// Serial communication (USB CDC on ESP32-C3 SuperMini)
-// ESP32-C3 SuperMini uses USB CDC for communication with PC/RotorHazard
-// Note: USB CDC ignores baud rate (USB is packet-based), but we set it for compatibility
-#define UART_BAUD_RATE      921600
+// Hardware pin definitions - board-specific
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+    // ESP32-C3 SuperMini (Hertz-hunter compatible)
+    #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
+    #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
+    #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
+    #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
+    #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
+#else
+    // Generic ESP32 DevKit / ESP32-WROOM-32 (NodeMCU-32S, Feather HUZZAH32, etc)
+    #define RSSI_INPUT_PIN      39    // GPIO39 (A3/ADC1_CH3) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     14    // GPIO14 - DATA (MOSI) to RX5808
+    #define RX5808_CLK_PIN      21    // GPIO21 - CLK (SCK) to RX5808
+    #define RX5808_SEL_PIN      32    // GPIO32 - LE (Latch Enable / CS) to RX5808
+    #define MODE_SWITCH_PIN     33    // GPIO33 - Mode selection switch
+    #define UART_BAUD_RATE      921600  // UART bridge - use 921600 for compatibility
+#endif
 
 // Mode selection (ESP32-C3 with pullup)
 #define WIFI_MODE           LOW   // GND on switch pin = WiFi/Standalone mode
