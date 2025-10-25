@@ -1,5 +1,7 @@
 #include "timing_core.h"
 #include <SPI.h>
+#include "esp_adc/adc_continuous.h"
+#include "soc/soc_caps.h"
 
 // RX5808 register definitions
 #define RX5808_WRITE_REGISTER   0x00
@@ -37,6 +39,11 @@ TimingCore::TimingCore() {
   recent_freq_change = false;
   freq_change_time = 0;
   
+  // Initialize DMA
+  adc_handle = nullptr;
+  use_dma = USE_DMA_ADC;  // Use config setting
+  dma_result_buffer = nullptr;
+  
   // Initialize extremum tracking
   peak_write_index = 0;
   peak_read_index = 0;
@@ -60,13 +67,21 @@ void TimingCore::begin() {
   // Setup pins
   pinMode(RSSI_INPUT_PIN, INPUT);
   
-  // CRITICAL: Configure ADC attenuation for full 0-3.3V range
-  // RX5808 RSSI output is 0-3.3V, so we need 11dB attenuation
-  // Without this, ESP32-C3 ADC defaults to lower voltage range and saturates
-  analogSetAttenuation(ADC_11db);  // Set global attenuation to 11dB (0-3.3V)
-  
-  if (debug_enabled) {
-    Serial.println("ADC configured for 0-3.3V range (11dB attenuation)");
+  // Setup DMA ADC or fall back to polled ADC
+  if (use_dma) {
+    setupADC_DMA();
+    if (debug_enabled) {
+      Serial.println("DMA ADC initialized - continuous background sampling at 10kHz");
+    }
+  } else {
+    // CRITICAL: Configure ADC attenuation for full 0-3.3V range
+    // RX5808 RSSI output is 0-3.3V, so we need 11dB attenuation
+    // Without this, ESP32-C3 ADC defaults to lower voltage range and saturates
+    analogSetAttenuation(ADC_11db);  // Set global attenuation to 11dB (0-3.3V)
+    
+    if (debug_enabled) {
+      Serial.println("Polled ADC configured for 0-3.3V range (11dB attenuation)");
+    }
   }
   
   // Test ADC reading immediately
@@ -86,7 +101,7 @@ void TimingCore::begin() {
   
   // Initialize RSSI filtering with some test readings
   for (int i = 0; i < RSSI_SAMPLES; i++) {
-    rssi_samples[i] = readRawRSSI(); // Use the new scaling function
+    rssi_samples[i] = use_dma ? readRawRSSI_DMA() : readRawRSSI();
     if (debug_enabled) {
       Serial.printf("Initial RSSI sample %d: %d\n", i, rssi_samples[i]);
     }
@@ -148,15 +163,16 @@ void TimingCore::timingTask(void* parameter) {
     
     // Take mutex for thread safety
     if (xSemaphoreTake(core->timing_mutex, portMAX_DELAY)) {
-      // Read and filter RSSI
-      uint8_t raw_rssi = core->readRawRSSI();
+      // Read and filter RSSI - use DMA if enabled
+      uint8_t raw_rssi = core->use_dma ? core->readRawRSSI_DMA() : core->readRawRSSI();
       
       // Debug output every 1000 iterations (about once per second) - only in debug mode
       debug_counter++;
       if (debug_counter % 1000 == 0 && core->debug_enabled) {
         uint16_t raw_adc = analogRead(RSSI_INPUT_PIN);
         uint16_t clamped = (raw_adc > 2047) ? 2047 : raw_adc;
-        Serial.printf("[TimingTask] ADC: %d, Clamped: %d, RSSI: %d, Threshold: %d, Crossing: %s, FreqStable: %s\n", 
+        Serial.printf("[TimingTask] Mode: %s, ADC: %d, Clamped: %d, RSSI: %d, Threshold: %d, Crossing: %s, FreqStable: %s\n", 
+                      core->use_dma ? "DMA" : "POLLED",
                       raw_adc, clamped, raw_rssi, core->state.threshold, 
                       (raw_rssi >= core->state.threshold) ? "YES" : "NO",
                       core->recent_freq_change ? "NO" : "YES");
@@ -1154,5 +1170,161 @@ void TimingCore::testChannelPinModeHigh() {
   
   // Keep pins in this state - don't restore
   Serial.println("Pins remain HIGH. Change generator frequency to test.\n");
+}
+
+// ============================================================================
+// DMA ADC Implementation for ESP32-C3
+// ============================================================================
+
+void TimingCore::setupADC_DMA() {
+  // Allocate result buffer for DMA
+  dma_result_buffer = (uint8_t*)heap_caps_malloc(DMA_BUFFER_SIZE * SOC_ADC_DIGI_RESULT_BYTES, 
+                                                   MALLOC_CAP_DMA);
+  if (dma_result_buffer == nullptr) {
+    if (debug_enabled) {
+      Serial.println("ERROR: Failed to allocate DMA buffer, falling back to polled ADC");
+    }
+    use_dma = false;
+    analogSetAttenuation(ADC_11db);
+    return;
+  }
+  
+  // Configure ADC continuous mode
+  adc_continuous_handle_cfg_t adc_config = {
+    .max_store_buf_size = DMA_BUFFER_SIZE * SOC_ADC_DIGI_RESULT_BYTES * 2,
+    .conv_frame_size = DMA_BUFFER_SIZE * SOC_ADC_DIGI_RESULT_BYTES,
+  };
+  
+  esp_err_t ret = adc_continuous_new_handle(&adc_config, &adc_handle);
+  if (ret != ESP_OK) {
+    if (debug_enabled) {
+      Serial.printf("ERROR: Failed to create ADC handle (0x%x), falling back to polled ADC\n", ret);
+    }
+    use_dma = false;
+    free(dma_result_buffer);
+    dma_result_buffer = nullptr;
+    analogSetAttenuation(ADC_11db);
+    return;
+  }
+  
+  // Configure ADC pattern (which channels to sample)
+  adc_digi_pattern_config_t adc_pattern = {
+    .atten = ADC_ATTEN_DB_12,        // 0-3.3V range (was ADC_ATTEN_DB_11, now deprecated)
+    .channel = ADC_CHANNEL_3,        // GPIO3 = ADC1_CH3 on ESP32-C3
+    .unit = ADC_UNIT_1,
+    .bit_width = ADC_BITWIDTH_12,    // 12-bit resolution
+  };
+  
+  adc_continuous_config_t dig_cfg = {
+    .pattern_num = 1,
+    .adc_pattern = &adc_pattern,
+    .sample_freq_hz = DMA_SAMPLE_RATE,
+    .conv_mode = ADC_CONV_SINGLE_UNIT_1,
+    .format = ADC_DIGI_OUTPUT_FORMAT_TYPE1,
+  };
+  
+  ret = adc_continuous_config(adc_handle, &dig_cfg);
+  if (ret != ESP_OK) {
+    if (debug_enabled) {
+      Serial.printf("ERROR: Failed to configure ADC (0x%x), falling back to polled ADC\n", ret);
+    }
+    use_dma = false;
+    adc_continuous_deinit(adc_handle);
+    free(dma_result_buffer);
+    dma_result_buffer = nullptr;
+    adc_handle = nullptr;
+    analogSetAttenuation(ADC_11db);
+    return;
+  }
+  
+  // Start continuous sampling
+  ret = adc_continuous_start(adc_handle);
+  if (ret != ESP_OK) {
+    if (debug_enabled) {
+      Serial.printf("ERROR: Failed to start ADC (0x%x), falling back to polled ADC\n", ret);
+    }
+    use_dma = false;
+    adc_continuous_deinit(adc_handle);
+    free(dma_result_buffer);
+    dma_result_buffer = nullptr;
+    adc_handle = nullptr;
+    analogSetAttenuation(ADC_11db);
+    return;
+  }
+  
+  if (debug_enabled) {
+    Serial.println("DMA ADC started successfully - continuous sampling at 10kHz");
+    Serial.printf("  Channel: ADC1_CH3 (GPIO%d)\n", RSSI_INPUT_PIN);
+    Serial.printf("  Sample rate: %d Hz\n", DMA_SAMPLE_RATE);
+    Serial.printf("  Buffer size: %d samples\n", DMA_BUFFER_SIZE);
+    Serial.println("  CPU overhead: ~0% (hardware DMA)");
+  }
+}
+
+void TimingCore::stopADC_DMA() {
+  if (adc_handle) {
+    adc_continuous_stop(adc_handle);
+    adc_continuous_deinit(adc_handle);
+    adc_handle = nullptr;
+  }
+  
+  if (dma_result_buffer) {
+    free(dma_result_buffer);
+    dma_result_buffer = nullptr;
+  }
+}
+
+uint8_t TimingCore::readRawRSSI_DMA() {
+  if (!adc_handle || !dma_result_buffer) {
+    // Fallback to polled mode if DMA failed
+    return readRawRSSI();
+  }
+  
+  uint32_t ret_num = 0;
+  
+  // Read samples from DMA buffer (non-blocking with short timeout)
+  esp_err_t ret = adc_continuous_read(adc_handle, dma_result_buffer, 
+                                      DMA_BUFFER_SIZE * SOC_ADC_DIGI_RESULT_BYTES, 
+                                      &ret_num, 10);  // 10ms timeout
+  
+  if (ret == ESP_OK && ret_num > 0) {
+    // Average all samples in buffer for excellent filtering
+    uint32_t sum = 0;
+    int count = 0;
+    
+    for (int i = 0; i < ret_num; i += SOC_ADC_DIGI_RESULT_BYTES) {
+      adc_digi_output_data_t *p = (adc_digi_output_data_t*)&dma_result_buffer[i];
+      
+      // Extract 12-bit ADC value (ESP-IDF 5.x format)
+      uint16_t adc_value;
+      #if CONFIG_IDF_TARGET_ESP32C3
+        // ESP32-C3 uses different structure layout
+        adc_value = p->type2.data;
+      #else
+        // ESP32/ESP32-S2/ESP32-S3 format
+        adc_value = p->type1.data;
+      #endif
+      
+      // Clamp to 2047 (0-2V range for RX5808 RSSI)
+      if (adc_value > 2047) {
+        adc_value = 2047;
+      }
+      
+      sum += adc_value;
+      count++;
+    }
+    
+    if (count > 0) {
+      // Average and scale to 0-255
+      uint16_t avg_adc = sum / count;
+      return avg_adc >> 3;  // Divide by 8 to get 0-255 range
+    }
+  } else if (ret == ESP_ERR_TIMEOUT) {
+    // No new data yet - use last known value (from RSSI filter)
+    return state.current_rssi;
+  }
+  
+  // Fallback to polled read if DMA fails
+  return readRawRSSI();
 }
 

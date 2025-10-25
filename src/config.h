@@ -32,10 +32,18 @@
 
 // Timing configuration
 #define TIMING_INTERVAL_MS  1     // Core timing loop interval
-#define RSSI_SAMPLES        50    // Number of RSSI samples to average (50ms smoothing window)
+#define RSSI_SAMPLES        10    // Number of RSSI samples to average (50ms smoothing window)
 #define CROSSING_THRESHOLD  50    // Default RSSI threshold for crossing detection
 #define TIMING_PRIORITY     1     // FreeRTOS task priority (same as main loop for single-core ESP32-C3)
 #define WEB_PRIORITY        2     // Web server priority (medium)
+
+// DMA ADC configuration
+#define USE_DMA_ADC         1     // Use DMA for ADC sampling (0 = polled, 1 = DMA)
+#define DMA_SAMPLE_RATE     1000  // DMA ADC sample rate in Hz (1000 = 1kHz, 5000 = 5kHz, 10000 = 10kHz)
+                                  // Lower rate = less variability, more stable readings
+                                  // Higher rate = better filtering, more responsive
+                                  // Recommended: 1000-5000 Hz for lap timing
+#define DMA_BUFFER_SIZE     256   // DMA buffer size in samples (larger = more averaging)
 
 
 // WiFi configuration

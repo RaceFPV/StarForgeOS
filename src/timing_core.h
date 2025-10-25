@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <cstdint>
 #include "config.h"
+#include "esp_adc/adc_continuous.h"
 
 // Structure to hold lap data
 struct LapData {
@@ -50,6 +51,11 @@ private:
   uint8_t lap_write_index;
   uint8_t lap_read_index;
   
+  // DMA ADC configuration
+  adc_continuous_handle_t adc_handle;
+  bool use_dma;
+  uint8_t* dma_result_buffer;
+  
   // RSSI filtering
   uint16_t rssi_samples[RSSI_SAMPLES];
   uint8_t sample_index;
@@ -86,8 +92,13 @@ private:
   void setRX5808Frequency(uint16_t freq_mhz);
   void sendRX5808Bit(uint8_t bit_value);
   
+  // DMA ADC setup
+  void setupADC_DMA();
+  void stopADC_DMA();
+  
   // RSSI processing
   uint8_t readRawRSSI();
+  uint8_t readRawRSSI_DMA();
   uint8_t filterRSSI(uint8_t raw_rssi);
   bool detectCrossing(uint8_t filtered_rssi);
   
