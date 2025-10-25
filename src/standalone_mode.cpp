@@ -428,6 +428,12 @@ h1 {
     text-align: center;
 }
 
+.rssi-display-full {
+    width: 100%;
+    text-align: center;
+    margin-top: 15px;
+}
+
 .rssi-value {
     font-size: 32px;
     font-weight: 700;
@@ -438,30 +444,29 @@ h1 {
     transition: all 0.3s ease;
 }
 
-.rssi-bar {
+.rssi-graph-container {
     position: relative;
     width: 100%;
-    height: 20px;
-    background: #e9ecef;
-    border-radius: 10px;
+    height: 250px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
     overflow: hidden;
+    margin-bottom: 15px;
 }
 
-.rssi-level {
+#rssiCanvas {
+    width: 100%;
     height: 100%;
-    background: linear-gradient(to right, #28a745, #ffc107, #dc3545);
-    width: 0%;
-    transition: width 0.3s ease;
+    display: block;
 }
 
-.threshold-line {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: #dc3545;
-    left: 20%;
-    transition: left 0.3s ease;
+.graph-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    font-size: 0.8em;
+    color: #6c757d;
 }
 
 #thresholdValue {
@@ -540,6 +545,12 @@ let raceActive = false;
 let updateInterval;
 let channelData = {};
 
+// RSSI Graph variables
+let rssiHistory = [];
+const MAX_HISTORY = 150; // 150 points = 37 seconds @ 4Hz updates (faster scrolling)
+let rssiCanvas = null;
+let rssiCtx = null;
+
 console.log('=== Setting up DOMContentLoaded listener ===');
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -550,6 +561,17 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('rssiLevel element:', document.getElementById('rssiLevel'));
     console.log('thresholdSlider element:', document.getElementById('thresholdSlider'));
     console.log('All elements in document:', document.querySelectorAll('*').length);
+    
+    // Initialize RSSI canvas
+    rssiCanvas = document.getElementById('rssiCanvas');
+    if (rssiCanvas) {
+        rssiCtx = rssiCanvas.getContext('2d');
+        // Set canvas size to match display size
+        const container = rssiCanvas.parentElement;
+        rssiCanvas.width = container.clientWidth;
+        rssiCanvas.height = container.clientHeight;
+        console.log('RSSI Canvas initialized:', rssiCanvas.width, 'x', rssiCanvas.height);
+    }
     
     // Small delay to ensure all elements are ready
     setTimeout(() => {
@@ -713,6 +735,136 @@ function startPeriodicUpdates() {
     updateInterval = setInterval(updateData, 250); // Update every 250ms for responsive RSSI
 }
 
+function drawRSSIGraph() {
+    if (!rssiCanvas || !rssiCtx || rssiHistory.length === 0) return;
+    
+    const width = rssiCanvas.width;
+    const height = rssiCanvas.height;
+    const padding = 20;
+    const graphHeight = height - 2 * padding;
+    const graphWidth = width - 2 * padding;
+    
+    // Clear canvas
+    rssiCtx.fillStyle = '#f8f9fa';
+    rssiCtx.fillRect(0, 0, width, height);
+    
+    // Draw grid lines (horizontal - RSSI levels)
+    rssiCtx.strokeStyle = '#e9ecef';
+    rssiCtx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padding + (graphHeight / 4) * i;
+        rssiCtx.beginPath();
+        rssiCtx.moveTo(padding, y);
+        rssiCtx.lineTo(width - padding, y);
+        rssiCtx.stroke();
+        
+        // Draw RSSI labels
+        const rssiValue = Math.round(255 - (255 / 4) * i);
+        rssiCtx.fillStyle = '#6c757d';
+        rssiCtx.font = '10px sans-serif';
+        rssiCtx.textAlign = 'right';
+        rssiCtx.fillText(rssiValue, padding - 5, y + 4);
+    }
+    
+    // Get current threshold from last data point
+    const currentThreshold = rssiHistory.length > 0 ? rssiHistory[rssiHistory.length - 1].threshold : 50;
+    
+    // Draw threshold line
+    const thresholdY = padding + graphHeight - (currentThreshold / 255) * graphHeight;
+    rssiCtx.strokeStyle = '#dc3545';
+    rssiCtx.lineWidth = 2;
+    rssiCtx.setLineDash([5, 5]);
+    rssiCtx.beginPath();
+    rssiCtx.moveTo(padding, thresholdY);
+    rssiCtx.lineTo(width - padding, thresholdY);
+    rssiCtx.stroke();
+    rssiCtx.setLineDash([]);
+    
+    // Draw threshold label
+    rssiCtx.fillStyle = '#dc3545';
+    rssiCtx.font = 'bold 11px sans-serif';
+    rssiCtx.textAlign = 'left';
+    rssiCtx.fillText(`Threshold: ${currentThreshold}`, padding + 5, thresholdY - 5);
+    
+    // Draw RSSI line
+    rssiCtx.strokeStyle = '#007bff';
+    rssiCtx.lineWidth = 2;
+    rssiCtx.beginPath();
+    
+    rssiHistory.forEach((point, index) => {
+        const x = padding + (graphWidth / MAX_HISTORY) * index;
+        const y = padding + graphHeight - (point.rssi / 255) * graphHeight;
+        
+        if (index === 0) {
+            rssiCtx.moveTo(x, y);
+        } else {
+            rssiCtx.lineTo(x, y);
+        }
+    });
+    rssiCtx.stroke();
+    
+    // Fill area below the line (to bottom of graph) for better visibility
+    rssiCtx.fillStyle = 'rgba(0, 123, 255, 0.15)';
+    rssiCtx.beginPath();
+    rssiHistory.forEach((point, index) => {
+        const x = padding + (graphWidth / MAX_HISTORY) * index;
+        const y = padding + graphHeight - (point.rssi / 255) * graphHeight;
+        
+        if (index === 0) {
+            rssiCtx.moveTo(x, y);
+        } else {
+            rssiCtx.lineTo(x, y);
+        }
+    });
+    // Complete the fill path to the bottom
+    if (rssiHistory.length > 0) {
+        const lastX = padding + (graphWidth / MAX_HISTORY) * (rssiHistory.length - 1);
+        rssiCtx.lineTo(lastX, height - padding);
+        rssiCtx.lineTo(padding, height - padding);
+        rssiCtx.closePath();
+        rssiCtx.fill();
+    }
+    
+    // Highlight crossing regions
+    rssiHistory.forEach((point, index) => {
+        if (point.crossing) {
+            const x = padding + (graphWidth / MAX_HISTORY) * index;
+            rssiCtx.fillStyle = 'rgba(220, 53, 69, 0.15)';
+            rssiCtx.fillRect(x - 1, padding, 2, graphHeight);
+        }
+    });
+    
+    // Draw border
+    rssiCtx.strokeStyle = '#dee2e6';
+    rssiCtx.lineWidth = 1;
+    rssiCtx.strokeRect(padding, padding, graphWidth, graphHeight);
+    
+    // Draw axis labels
+    rssiCtx.fillStyle = '#6c757d';
+    rssiCtx.font = '11px sans-serif';
+    rssiCtx.textAlign = 'center';
+    rssiCtx.fillText('Time (37 seconds)', width / 2, height - 5);
+    
+    // Draw current RSSI value
+    if (rssiHistory.length > 0) {
+        const currentRSSI = rssiHistory[rssiHistory.length - 1].rssi;
+        const lastX = padding + (graphWidth / MAX_HISTORY) * (rssiHistory.length - 1);
+        const lastY = padding + graphHeight - (currentRSSI / 255) * graphHeight;
+        
+        // Draw dot at current position
+        rssiCtx.fillStyle = '#007bff';
+        rssiCtx.beginPath();
+        rssiCtx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
+        rssiCtx.fill();
+        
+        // Draw current value label
+        rssiCtx.fillStyle = '#007bff';
+        rssiCtx.font = 'bold 12px sans-serif';
+        rssiCtx.textAlign = 'right';
+        rssiCtx.fillText(currentRSSI, width - padding - 5, lastY + 15);
+    }
+}
+
 async function updateData() {
     try {
         // Update status
@@ -767,34 +919,19 @@ async function updateData() {
             }
         }
         
-        // Update RSSI bar (0-255 -> 0-100%)
-        const rssiLevel = document.getElementById('rssiLevel');
-        const rssiPercentage = (currentRSSI / 255) * 100;
-        
-        if (rssiLevel) {
-            rssiLevel.style.width = rssiPercentage + '%';
-            
-            // Change RSSI bar color based on level
-            if (rssiPercentage < 20) {
-                rssiLevel.style.background = '#28a745'; // Green for low
-            } else if (rssiPercentage < 60) {
-                rssiLevel.style.background = 'linear-gradient(to right, #28a745, #ffc107)'; // Green to yellow
-            } else {
-                rssiLevel.style.background = 'linear-gradient(to right, #ffc107, #dc3545)'; // Yellow to red
-            }
-        } else {
-            console.error('Could not find rssiLevel element!');
-        }
-        
         // Update threshold slider if it doesn't match
         const thresholdSlider = document.getElementById('thresholdSlider');
         if (status.threshold && parseInt(thresholdSlider.value) !== status.threshold) {
             thresholdSlider.value = status.threshold;
             document.getElementById('thresholdValue').textContent = status.threshold;
-            const thresholdLine = document.getElementById('thresholdLine');
-            const percentage = (status.threshold / 255) * 100;
-            thresholdLine.style.left = percentage + '%';
         }
+        
+        // Update RSSI history and graph
+        rssiHistory.push({rssi: currentRSSI, threshold: status.threshold, crossing: status.crossing});
+        if (rssiHistory.length > MAX_HISTORY) {
+            rssiHistory.shift(); // Remove oldest point
+        }
+        drawRSSIGraph();
         
         // Update laps
         const lapsResponse = await fetch('/api/laps');

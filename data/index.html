@@ -36,13 +36,13 @@
                     <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)">
                     <span id="thresholdValue">50</span>
                 </div>
-                <div class="config-item rssi-display">
-                    <label>Current RSSI:</label>
-                    <span id="currentRSSI" class="rssi-value">0</span>
-                    <div id="rssiBar" class="rssi-bar">
-                        <div id="rssiLevel" class="rssi-level"></div>
-                        <div id="thresholdLine" class="threshold-line"></div>
-                    </div>
+            </div>
+            
+            <div class="rssi-display-full">
+                <label>Current RSSI:</label>
+                <span id="currentRSSI" class="rssi-value">0</span>
+                <div class="rssi-graph-container">
+                    <canvas id="rssiCanvas"></canvas>
                 </div>
             </div>
         </div>
