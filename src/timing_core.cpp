@@ -1297,12 +1297,12 @@ uint8_t TimingCore::readRawRSSI_DMA() {
       
       // Extract 12-bit ADC value (ESP-IDF 5.x format)
       uint16_t adc_value;
-      #if CONFIG_IDF_TARGET_ESP32C3
-        // ESP32-C3 uses different structure layout
-        adc_value = p->type2.data;
-      #else
-        // ESP32/ESP32-S2/ESP32-S3 format
+      #if CONFIG_IDF_TARGET_ESP32
+        // Original ESP32 (ESP32-WROOM) uses type1 format
         adc_value = p->type1.data;
+      #else
+        // ESP32-S2, ESP32-S3, ESP32-C3 all use type2 format
+        adc_value = p->type2.data;
       #endif
       
       // Clamp to 2047 (0-2V range for RX5808 RSSI)
