@@ -11,39 +11,42 @@
         <div id="status" class="status">Status: Ready</div>
         
         <div class="config-section">
-            <h3>Configuration</h3>
-            <div class="config-row">
-                <div class="config-item">
-                    <label for="bandSelect">FPV Band:</label>
-                    <select id="bandSelect" onchange="updateChannels()">
-                        <option value="Raceband">Raceband</option>
-                        <option value="Fatshark">Fatshark</option>
-                        <option value="Boscam_A">Boscam A</option>
-                        <option value="Boscam_E">Boscam E</option>
-                    </select>
+            <div class="config-header" onclick="toggleConfig()">
+                <h3>Configuration</h3>
+                <span class="expand-icon collapsed" id="configIcon">&#9660;</span>
+            </div>
+            <div class="config-content collapsed" id="configContent">
+                <div class="config-row">
+                    <div class="config-item">
+                        <label for="bandSelect">FPV Band:</label>
+                        <select id="bandSelect" onchange="updateChannels()">
+                            <option value="Raceband">Raceband</option>
+                            <option value="Fatshark">Fatshark</option>
+                            <option value="Boscam_A">Boscam A</option>
+                            <option value="Boscam_E">Boscam E</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label for="channelSelect">Channel:</label>
+                        <select id="channelSelect" onchange="setFrequency()">
+                            <option value="5658">Loading...</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="config-item">
-                    <label for="channelSelect">Channel:</label>
-                    <select id="channelSelect" onchange="setFrequency()">
-                        <option value="5658">Loading...</option>
-                    </select>
+                
+                <div class="config-row">
+                    <div class="config-item">
+                        <label for="thresholdSlider">RSSI Threshold:</label>
+                        <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)">
+                        <span id="thresholdValue">50</span>
+                    </div>
                 </div>
             </div>
-            
-            <div class="config-row">
-                <div class="config-item">
-                    <label for="thresholdSlider">RSSI Threshold:</label>
-                    <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)">
-                    <span id="thresholdValue">50</span>
-                </div>
-            </div>
-            
-            <div class="rssi-display-full">
-                <label>Current RSSI:</label>
-                <span id="currentRSSI" class="rssi-value">0</span>
-                <div class="rssi-graph-container">
-                    <canvas id="rssiCanvas"></canvas>
-                </div>
+        </div>
+        
+        <div class="rssi-section">
+            <div class="rssi-graph-container">
+                <canvas id="rssiCanvas"></canvas>
             </div>
         </div>
         

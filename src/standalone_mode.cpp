@@ -385,10 +385,54 @@ h1 {
 
 .config-section {
     background: #f8f9fa;
-    padding: 20px;
     border-radius: 8px;
     margin-bottom: 25px;
     border: 1px solid #e9ecef;
+    overflow: hidden;
+}
+
+.config-header {
+    padding: 15px 20px;
+    background: #e9ecef;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.config-header:hover {
+    background: #dee2e6;
+}
+
+.config-header h3 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.expand-icon {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #6c757d;
+    transition: transform 0.3s;
+    display: inline-block;
+}
+
+.expand-icon.collapsed {
+    transform: rotate(-90deg);
+}
+
+.config-content {
+    max-height: 500px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+    padding: 20px;
+}
+
+.config-content.collapsed {
+    max-height: 0;
+    padding: 0 20px;
 }
 
 .config-section h3 {
@@ -426,6 +470,12 @@ h1 {
 
 .rssi-display {
     text-align: center;
+}
+
+.rssi-section {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 25px;
 }
 
 .rssi-display-full {
@@ -593,6 +643,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 console.log('=== JavaScript file loaded completely ===');
 
+function toggleConfig() {
+    const content = document.getElementById('configContent');
+    const icon = document.getElementById('configIcon');
+    
+    if (content && icon) {
+        content.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    }
+}
+
 async function loadChannelData() {
     try {
         const response = await fetch('/api/get_channels');
@@ -740,7 +800,7 @@ function drawRSSIGraph() {
     
     const width = rssiCanvas.width;
     const height = rssiCanvas.height;
-    const padding = 20;
+    const padding = 40;  // Increased padding for larger text
     const graphHeight = height - 2 * padding;
     const graphWidth = width - 2 * padding;
     
@@ -761,9 +821,9 @@ function drawRSSIGraph() {
         // Draw RSSI labels
         const rssiValue = Math.round(255 - (255 / 4) * i);
         rssiCtx.fillStyle = '#6c757d';
-        rssiCtx.font = '10px sans-serif';
+        rssiCtx.font = '12px sans-serif';
         rssiCtx.textAlign = 'right';
-        rssiCtx.fillText(rssiValue, padding - 5, y + 4);
+        rssiCtx.fillText(rssiValue, padding - 8, y + 4);
     }
     
     // Get current threshold from last data point
@@ -782,86 +842,59 @@ function drawRSSIGraph() {
     
     // Draw threshold label
     rssiCtx.fillStyle = '#dc3545';
-    rssiCtx.font = 'bold 11px sans-serif';
+    rssiCtx.font = 'bold 12px sans-serif';
     rssiCtx.textAlign = 'left';
-    rssiCtx.fillText(`Threshold: ${currentThreshold}`, padding + 5, thresholdY - 5);
+    rssiCtx.fillText(`Threshold: ${currentThreshold}`, padding + 5, thresholdY - 8);
     
-    // Draw RSSI line
-    rssiCtx.strokeStyle = '#007bff';
-    rssiCtx.lineWidth = 2;
-    rssiCtx.beginPath();
+    // Draw bars (bar chart style)
+    const barWidth = graphWidth / MAX_HISTORY;
     
     rssiHistory.forEach((point, index) => {
-        const x = padding + (graphWidth / MAX_HISTORY) * index;
-        const y = padding + graphHeight - (point.rssi / 255) * graphHeight;
+        const x = padding + barWidth * index;
+        const barHeight = (point.rssi / 255) * graphHeight;
+        const y = padding + graphHeight - barHeight;
         
-        if (index === 0) {
-            rssiCtx.moveTo(x, y);
+        // Choose color based on threshold
+        if (point.rssi >= currentThreshold) {
+            rssiCtx.fillStyle = 'rgba(220, 53, 69, 0.7)';  // Red when above threshold
         } else {
-            rssiCtx.lineTo(x, y);
+            rssiCtx.fillStyle = 'rgba(0, 123, 255, 0.7)';  // Blue when below threshold
         }
-    });
-    rssiCtx.stroke();
-    
-    // Fill area below the line (to bottom of graph) for better visibility
-    rssiCtx.fillStyle = 'rgba(0, 123, 255, 0.15)';
-    rssiCtx.beginPath();
-    rssiHistory.forEach((point, index) => {
-        const x = padding + (graphWidth / MAX_HISTORY) * index;
-        const y = padding + graphHeight - (point.rssi / 255) * graphHeight;
         
-        if (index === 0) {
-            rssiCtx.moveTo(x, y);
-        } else {
-            rssiCtx.lineTo(x, y);
-        }
-    });
-    // Complete the fill path to the bottom
-    if (rssiHistory.length > 0) {
-        const lastX = padding + (graphWidth / MAX_HISTORY) * (rssiHistory.length - 1);
-        rssiCtx.lineTo(lastX, height - padding);
-        rssiCtx.lineTo(padding, height - padding);
-        rssiCtx.closePath();
-        rssiCtx.fill();
-    }
-    
-    // Highlight crossing regions
-    rssiHistory.forEach((point, index) => {
-        if (point.crossing) {
-            const x = padding + (graphWidth / MAX_HISTORY) * index;
-            rssiCtx.fillStyle = 'rgba(220, 53, 69, 0.15)';
-            rssiCtx.fillRect(x - 1, padding, 2, graphHeight);
-        }
+        // Draw bar
+        rssiCtx.fillRect(x, y, barWidth - 1, barHeight);
+        
+        // Add subtle border to bars
+        rssiCtx.strokeStyle = point.rssi >= currentThreshold ? '#dc3545' : '#007bff';
+        rssiCtx.lineWidth = 1;
+        rssiCtx.strokeRect(x, y, barWidth - 1, barHeight);
     });
     
     // Draw border
     rssiCtx.strokeStyle = '#dee2e6';
-    rssiCtx.lineWidth = 1;
+    rssiCtx.lineWidth = 2;
     rssiCtx.strokeRect(padding, padding, graphWidth, graphHeight);
     
     // Draw axis labels
     rssiCtx.fillStyle = '#6c757d';
-    rssiCtx.font = '11px sans-serif';
+    rssiCtx.font = '12px sans-serif';
     rssiCtx.textAlign = 'center';
-    rssiCtx.fillText('Time (37 seconds)', width / 2, height - 5);
+    rssiCtx.fillText('Time (37 seconds)', width / 2, height - 8);
     
-    // Draw current RSSI value
+    // Draw current RSSI value (large and prominent)
     if (rssiHistory.length > 0) {
         const currentRSSI = rssiHistory[rssiHistory.length - 1].rssi;
-        const lastX = padding + (graphWidth / MAX_HISTORY) * (rssiHistory.length - 1);
-        const lastY = padding + graphHeight - (currentRSSI / 255) * graphHeight;
         
-        // Draw dot at current position
-        rssiCtx.fillStyle = '#007bff';
-        rssiCtx.beginPath();
-        rssiCtx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
-        rssiCtx.fill();
-        
-        // Draw current value label
-        rssiCtx.fillStyle = '#007bff';
-        rssiCtx.font = 'bold 12px sans-serif';
+        // Draw large current value in top-right corner
+        rssiCtx.fillStyle = currentRSSI >= currentThreshold ? '#dc3545' : '#007bff';
+        rssiCtx.font = 'bold 48px sans-serif';
         rssiCtx.textAlign = 'right';
-        rssiCtx.fillText(currentRSSI, width - padding - 5, lastY + 15);
+        rssiCtx.fillText(currentRSSI, width - padding - 10, padding + 50);
+        
+        // Draw "RSSI" label below the number
+        rssiCtx.font = 'bold 14px sans-serif';
+        rssiCtx.fillStyle = '#6c757d';
+        rssiCtx.fillText('RSSI', width - padding - 10, padding + 68);
     }
 }
 
@@ -873,16 +906,8 @@ async function updateData() {
         
         // console.log('API Response:', status); // Debug output - disabled
         
-        // Update RSSI display first
+        // Update RSSI (now only in the graph, no separate display element)
         const currentRSSI = status.rssi || 0;
-        const rssiElement = document.getElementById('currentRSSI');
-        
-        if (rssiElement) {
-            rssiElement.textContent = currentRSSI;
-            // console.log('Updated RSSI display to:', currentRSSI); // Debug output - disabled
-        } else {
-            console.error('Could not find currentRSSI element!');
-        }
         
         // Show/hide RSSI warning
         
@@ -905,17 +930,6 @@ async function updateData() {
             } else {
                 statusElement.style.borderLeft = '4px solid #007bff';
                 statusElement.style.backgroundColor = '#f8f9fa';
-            }
-        }
-        
-        // Add visual feedback when RSSI is above threshold
-        if (rssiElement) {
-            if (currentRSSI > status.threshold) {
-                rssiElement.style.color = '#dc3545'; // Red when above threshold
-                rssiElement.style.fontWeight = 'bold';
-            } else {
-                rssiElement.style.color = '#007bff'; // Blue when below threshold
-                rssiElement.style.fontWeight = '700';
             }
         }
         
