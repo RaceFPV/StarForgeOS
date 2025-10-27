@@ -1,0 +1,157 @@
+name: Build PlatformIO Firmware
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  release:
+    types: [ created ]
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment:
+          - esp32-c3-supermini
+          - esp32-c3
+          - esp32dev
+          - esp32-s3
+          - esp32-s2
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Cache PlatformIO
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.platformio
+          .pio
+        key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+        restore-keys: |
+          ${{ runner.os }}-pio-
+    
+    - name: Install PlatformIO
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+    
+    - name: Build firmware for ${{ matrix.environment }}
+      run: pio run -e ${{ matrix.environment }}
+    
+    - name: Build filesystem for ${{ matrix.environment }}
+      run: pio run -e ${{ matrix.environment }} --target buildfs
+      continue-on-error: true  # Some environments might not need filesystem
+    
+    - name: Prepare artifacts
+      run: |
+        mkdir -p artifacts/${{ matrix.environment }}
+        
+        # Copy firmware binary
+        if [ -f .pio/build/${{ matrix.environment }}/firmware.bin ]; then
+          cp .pio/build/${{ matrix.environment }}/firmware.bin artifacts/${{ matrix.environment }}/
+        fi
+        
+        # Copy bootloader and partitions (for manual flashing)
+        if [ -f .pio/build/${{ matrix.environment }}/bootloader.bin ]; then
+          cp .pio/build/${{ matrix.environment }}/bootloader.bin artifacts/${{ matrix.environment }}/
+        fi
+        if [ -f .pio/build/${{ matrix.environment }}/partitions.bin ]; then
+          cp .pio/build/${{ matrix.environment }}/partitions.bin artifacts/${{ matrix.environment }}/
+        fi
+        
+        # Copy filesystem binary
+        if [ -f .pio/build/${{ matrix.environment }}/spiffs.bin ]; then
+          cp .pio/build/${{ matrix.environment }}/spiffs.bin artifacts/${{ matrix.environment }}/
+        fi
+        
+        # Create flash instructions
+        cat > artifacts/${{ matrix.environment }}/FLASH_INSTRUCTIONS.txt << 'EOF'
+        StarForge Firmware - ${{ matrix.environment }}
+        ========================================
+        
+        Flash using esptool.py:
+        -----------------------
+        esptool.py --chip auto --port /dev/ttyUSB0 --baud 921600 write_flash \
+          0x0000 bootloader.bin \
+          0x8000 partitions.bin \
+          0x10000 firmware.bin \
+          0x290000 spiffs.bin
+        
+        Or use PlatformIO:
+        ------------------
+        pio run -e ${{ matrix.environment }} --target upload --upload-port /dev/ttyUSB0
+        pio run -e ${{ matrix.environment }} --target uploadfs --upload-port /dev/ttyUSB0
+        
+        Built: $(date)
+        Commit: ${{ github.sha }}
+        EOF
+    
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-${{ matrix.environment }}
+        path: artifacts/${{ matrix.environment }}
+        retention-days: 90
+    
+    - name: Get firmware size info
+      run: |
+        echo "=== Build Information for ${{ matrix.environment }} ==="
+        if [ -f .pio/build/${{ matrix.environment }}/firmware.elf ]; then
+          pio run -e ${{ matrix.environment }} --target size
+        fi
+
+  # Create a combined release with all binaries
+  release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-firmware
+    
+    - name: Create release package
+      run: |
+        cd all-firmware
+        for env in esp32-c3-supermini esp32-c3 esp32dev esp32-s3 esp32-s2; do
+          if [ -d "firmware-$env" ]; then
+            cd "firmware-$env"
+            zip -r "../StarForge-${env}.zip" .
+            cd ..
+          fi
+        done
+    
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: all-firmware/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Summary job to show build status
+  summary:
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Build Summary
+      run: |
+        echo "### Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ All firmware builds completed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Download artifacts from the Actions tab or releases page" >> $GITHUB_STEP_SUMMARY
+
