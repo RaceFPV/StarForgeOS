@@ -46,12 +46,12 @@ void setup() {
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
     Serial.println();
-    Serial.println("=== Tracer ESP32 Timer ===");
+    Serial.println("=== StarForge ESP32 Timer ===");
     Serial.println("Version: 1.0.0");
     Serial.println();
     Serial.println("Mode: STANDALONE/WIFI (Pin 0 = LOW/GND)");
     Serial.println("Initializing timing core...");
-    WiFi.softAP("TRACER", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
+    WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
   }
   
   // Initialize core timing system (creates task but keeps it INACTIVE)

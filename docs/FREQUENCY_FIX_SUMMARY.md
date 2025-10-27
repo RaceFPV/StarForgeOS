@@ -2,7 +2,7 @@
 
 ## Problem Summary
 
-Your Tracer board with RTC6715 chip is stuck at a single frequency (R1 5658 MHz) and won't respond to frequency changes, even though the same code works fine with standard RX5808 modules.
+Your StarForge board with RTC6715 chip is stuck at a single frequency (R1 5658 MHz) and won't respond to frequency changes, even though the same code works fine with standard RX5808 modules.
 
 ## Root Cause: Hardware Configuration Issue
 
@@ -24,7 +24,7 @@ The RTC6715 chip supports two operating modes:
 
 ### Hardware Modification Required
 
-You need to modify the **SPI_EN pin** on your Tracer board:
+You need to modify the **SPI_EN pin** on your StarForge board:
 
 **Current state:** SPI_EN → GND (Channel Pin Mode active)  
 **Required state:** SPI_EN → 3.3V or floating (SPI Mode active)
@@ -87,9 +87,9 @@ The test function verifies:
 
 1. Flash the updated firmware
 2. Boot in WiFi mode
-3. Connect to Tracer AP
+3. Connect to SFOS AP
 4. Set your generator to R1 5658 MHz
-5. Change Tracer to R2 5695 MHz in web UI
+5. Change StarForge receiver to R2 5695 MHz in web UI
 6. **Expected:** RSSI should drop dramatically
 7. **Actual (if broken):** RSSI stays the same → **SPI_EN is grounded**
 

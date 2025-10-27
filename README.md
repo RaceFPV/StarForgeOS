@@ -1,6 +1,6 @@
-# Tracer - ESP32-C3 Timing System
+# StarForge - ESP32 Drone Race Timing System
 
-**The ultimate dual-mode FPV race timer** - Works standalone with WiFi or integrates seamlessly with RotorHazard server. Built on ESP32-C3 for maximum performance and reliability.
+**The ultimate dual-mode FPV race timer** - Works standalone with WiFi or integrates seamlessly with RotorHazard server. Built on ESP32 for maximum performance and reliability.
 
 ## 🏁 Two Modes, One Device
 
@@ -42,8 +42,8 @@ Switch between modes instantly - no firmware changes needed. Use a simple jumper
 
 ### Standalone Mode (WiFi)
 1. Power on the device
-2. Connect to WiFi network "tracer-XXXX"
-3. Open browser to http://tracer.local
+2. Connect to WiFi network "SFOS-XXXX"
+3. Open browser to http://sfos.local
 4. Start racing!
 
 ### RotorHazard Node Mode
@@ -77,6 +77,19 @@ pio run -e esp32-c3-supermini --target uploadfs
 **Note**: Both commands are required - one uploads the firmware, the other uploads the web interface files.
 
 ## 🐛 Troubleshooting
+
+### Build Errors
+
+**Error: `adc_continuous.h` not found**
+
+This occurs when using an older ESP-IDF version. The DMA ADC feature requires ESP-IDF 5.0 or later.
+
+**Solution:**
+- Delete .pio folder, run `pio run -t clean` and try the upload again
+
+**Why?** The continuous ADC API (`adc_continuous.h`) was introduced in ESP-IDF 5.0. PlatformIO's espressif32 platform version 6.0+ includes ESP-IDF 5.1+.
+
+### Other Issues
 
 Common issues and solutions are covered in the [Setup Guide](docs/setup.md). For RSSI problems, frequency issues, or connectivity troubleshooting, check the documentation.
 

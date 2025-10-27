@@ -1,8 +1,8 @@
 # RTC6715 Frequency Change Troubleshooting Guide
 
-## Issue: Tracer Board Stuck at Single Frequency (R1 5658 MHz)
+## Issue: StarForge Board Stuck at Single Frequency (R1 5658 MHz)
 
-If your Tracer board won't change frequencies and stays locked at R1 5658 MHz (or any other single frequency), this is likely a **hardware configuration issue**, not a software bug.
+If your StarForge board won't change frequencies and stays locked at R1 5658 MHz (or any other single frequency), this is likely a **hardware configuration issue**, not a software bug.
 
 ## Root Cause: SPI Mode Not Enabled
 
@@ -17,7 +17,7 @@ The RTC6715 chip has two operating modes:
 ### 2. SPI Mode (Required for software control)
 - Uses SPI protocol for frequency programming
 - Allows any frequency from 5645-5945 MHz
-- **This is what the Tracer firmware requires**
+- **This is what the StarForge firmware requires**
 
 ## How to Fix: Enable SPI Mode
 
@@ -146,7 +146,7 @@ If RSSI doesn't change between frequencies, check SPI_EN pin!
 
 1. **Flash the updated firmware** with the new diagnostic code
 2. **Boot in WiFi mode** (MODE_SWITCH_PIN = LOW/GND)
-3. **Connect to Tracer WiFi AP**
+3. **Connect to SFOS WiFi AP**
 4. **Open serial monitor** at 921600 baud
 5. **Use the web interface** to change frequencies
 6. **Observe the detailed debug output**
@@ -154,7 +154,7 @@ If RSSI doesn't change between frequencies, check SPI_EN pin!
 ### Test with Signal Generator
 
 1. Set generator to R1 5658 MHz
-2. Position Tracer board near generator
+2. Position StarForge board near generator
 3. In web UI, verify high RSSI on R1 (should be >100)
 4. Switch to R2 5695 MHz in web UI
 5. **Expected**: RSSI drops to ~0-30 (no signal)
@@ -170,8 +170,8 @@ If RSSI doesn't change = **Hardware issue, SPI not enabled**
 ### Issue: Garbage RSSI values
 **Solution:** Check RSSI pin connection and ADC configuration.
 
-### Issue: Frequency changes work on standard RX5808 but not Tracer
-**Solution:** Standard board has SPI enabled by default. Tracer needs modification.
+### Issue: Frequency changes work on standard RX5808 but not StarForge
+**Solution:** Standard board has SPI enabled by default. StarForge needs modification.
 
 ### Issue: No debug output
 **Solution:** Make sure you're in WiFi mode (not RotorHazard node mode).

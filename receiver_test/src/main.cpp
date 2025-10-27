@@ -1,5 +1,5 @@
 /*
- * Tracer Test - Minimal RTC6715 Diagnostic Tool
+ * Receiver Test - Minimal RTC6715 Diagnostic Tool
  * 
  * Ultra-lightweight test firmware for verifying RTC6715 functionality
  * Serial console only - no WiFi, no web server, no timing system
@@ -19,7 +19,7 @@
 
 #include <Arduino.h>
 
-// Pin definitions (same as Tracer board)
+// Pin definitions (same as NovaCore board)
 #define RSSI_INPUT_PIN      3     // ADC1_CH3 - RSSI input from RX5808
 #define RX5808_DATA_PIN     6     // SPI MOSI to RX5808 module
 #define RX5808_CLK_PIN      4     // SPI SCK to RX5808 module
@@ -57,7 +57,7 @@ void setup() {
   
   Serial.println("\n\n");
   Serial.println("╔════════════════════════════════════════════════════╗");
-  Serial.println("║      TRACER TEST - RTC6715 Diagnostic Tool        ║");
+  Serial.println("║      RECEIVER TEST - RTC6715 Diagnostic Tool       ║");
   Serial.println("╚════════════════════════════════════════════════════╝");
   Serial.println();
   Serial.println("Minimal firmware for testing RTC6715 chips");

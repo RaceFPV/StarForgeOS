@@ -56,7 +56,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     Serial.printf("Access point: %s\n", WIFI_AP_SSID_PREFIX);
     Serial.printf("IP address: %s\n", WiFi.softAPIP().toString().c_str());
     Serial.printf("mDNS hostname: %s.local\n", MDNS_HOSTNAME);
-    Serial.println("Open browser to http://192.168.4.1 or http://tracer.local");
+    Serial.println("Open browser to http://192.168.4.1 or http://sfos.local");
     
     // Create dedicated web server task
     xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);

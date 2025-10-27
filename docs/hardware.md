@@ -1,4 +1,4 @@
-# Tracer Documentation
+# StarForge Documentation
 
 ## Hardware Setup For RX5808 Version
 
@@ -32,7 +32,7 @@ GND          | Position 1   | RotorHazard node mode
 3.3V         | Position 2   | WiFi standalone mode
 ```
 
-<a href="tracer-rx5808-ver.png"><img src="tracer-rx5808-ver.png" width="300" alt="Tracer RX5808 Hardware" /></a>
+<a href="NovaKit-rx5808-ver.png"><img src="NovaKit-rx5808-ver.png" width="300" alt="NovaKit RX5808 Hardware" /></a>
 
 **Important**: 
 - **Nothing connected** (floating) = RotorHazard node mode (default)

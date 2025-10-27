@@ -47,10 +47,10 @@
 
 
 // WiFi configuration
-#define WIFI_AP_SSID_PREFIX "Tracer"
+#define WIFI_AP_SSID_PREFIX "SFOS"
 #define WIFI_AP_PASSWORD    ""    // Open network for simplicity
 #define WEB_SERVER_PORT     80
-#define MDNS_HOSTNAME       "tracer"         // mDNS hostname (accessible as tracer.local)
+#define MDNS_HOSTNAME       "sfos"         // mDNS hostname (accessible as sfos.local)
 
 // Data storage
 #define MAX_LAPS_STORED     100   // Maximum laps to store in memory

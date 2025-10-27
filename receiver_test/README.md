@@ -1,10 +1,10 @@
-# Tracer Test - RTC6715 Diagnostic Tool
+# Receiver Test - RTC6715 Diagnostic Tool
 
 Minimal test firmware for diagnosing RTC6715 chip and board issues.
 
 ## Purpose
 
-This is a stripped-down version of the Tracer firmware with:
+This is a stripped-down version of the StarForge firmware with:
 - ✓ Basic RTC6715 control
 - ✓ RSSI reading
 - ✓ Serial console interface
@@ -17,7 +17,7 @@ Perfect for quickly testing if a board/chip is working correctly.
 
 ## Hardware
 
-Same pinout as Tracer board:
+Same pinout as NovaCore board:
 - **GPIO 3** - RSSI input (ADC)
 - **GPIO 6** - SPI DATA
 - **GPIO 4** - SPI CLK
@@ -27,7 +27,7 @@ Same pinout as Tracer board:
 
 ### 1. Flash Firmware
 ```bash
-cd tracer_test
+cd receiver_test
 pio run -e esp32-c3-supermini --target upload
 ```
 
@@ -209,7 +209,7 @@ This quickly identifies which boards have the SPI_SE issue.
 
 ```
 ╔════════════════════════════════════════════════════╗
-║      TRACER TEST - RTC6715 Diagnostic Tool        ║
+║      RECEIVER TEST - RTC6715 Diagnostic Tool       ║
 ╚════════════════════════════════════════════════════╝
 
 Minimal firmware for testing RTC6715 chips
