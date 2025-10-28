@@ -1208,9 +1208,18 @@ void TimingCore::setupADC_DMA() {
   }
   
   // Configure ADC pattern (which channels to sample)
+  // Determine correct ADC channel based on RSSI_INPUT_PIN
+  adc_channel_t adc_channel;
+  #if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+    adc_channel = ADC_CHANNEL_3;     // GPIO3 = ADC1_CH3 on ESP32-C3
+  #else
+    // ESP32-WROOM uses GPIO34 = ADC1_CH6
+    adc_channel = ADC_CHANNEL_6;     // GPIO34 = ADC1_CH6 on ESP32
+  #endif
+  
   adc_digi_pattern_config_t adc_pattern = {
     .atten = ADC_ATTEN_DB_12,        // 0-3.3V range (was ADC_ATTEN_DB_11, now deprecated)
-    .channel = ADC_CHANNEL_3,        // GPIO3 = ADC1_CH3 on ESP32-C3
+    .channel = adc_channel,          // Chip-specific ADC channel
     .unit = ADC_UNIT_1,
     .bit_width = ADC_BITWIDTH_12,    // 12-bit resolution
   };
@@ -1253,8 +1262,8 @@ void TimingCore::setupADC_DMA() {
   }
   
   if (debug_enabled) {
-    Serial.println("DMA ADC started successfully - continuous sampling at 10kHz");
-    Serial.printf("  Channel: ADC1_CH3 (GPIO%d)\n", RSSI_INPUT_PIN);
+    Serial.println("DMA ADC started successfully - continuous sampling");
+    Serial.printf("  Channel: ADC1_CH%d (GPIO%d)\n", adc_channel, RSSI_INPUT_PIN);
     Serial.printf("  Sample rate: %d Hz\n", DMA_SAMPLE_RATE);
     Serial.printf("  Buffer size: %d samples\n", DMA_BUFFER_SIZE);
     Serial.println("  CPU overhead: ~0% (hardware DMA)");

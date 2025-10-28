@@ -11,13 +11,14 @@
     #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
 #else
-    // Generic ESP32 DevKit / ESP32-WROOM-32 (NodeMCU-32S, Feather HUZZAH32, etc)
-    #define RSSI_INPUT_PIN      39    // GPIO39 (A3/ADC1_CH3) - RSSI input from RX5808
-    #define RX5808_DATA_PIN     14    // GPIO14 - DATA (MOSI) to RX5808
-    #define RX5808_CLK_PIN      21    // GPIO21 - CLK (SCK) to RX5808
-    #define RX5808_SEL_PIN      32    // GPIO32 - LE (Latch Enable / CS) to RX5808
-    #define MODE_SWITCH_PIN     33    // GPIO33 - Mode selection switch
-    #define UART_BAUD_RATE      921600  // UART bridge - use 921600 for compatibility
+    // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
+    // Pin mapping compatible with standard ESP32 dev boards
+    #define RSSI_INPUT_PIN      34    // GPIO34 (ADC1_CH6) - RSSI input from RX5808 (input only, good for ADC)
+    #define RX5808_DATA_PIN     23    // GPIO23 (MOSI) - DATA to RX5808
+    #define RX5808_CLK_PIN      18    // GPIO18 (SCK) - CLK to RX5808
+    #define RX5808_SEL_PIN      5     // GPIO5 (CS) - LE (Latch Enable) to RX5808
+    #define MODE_SWITCH_PIN     33    // GPIO33 - Mode selection switch (with internal pullup)
+    #define UART_BAUD_RATE      115200  // UART bridge baud rate
 #endif
 
 // Mode selection (ESP32-C3 with pullup)
@@ -34,8 +35,17 @@
 #define TIMING_INTERVAL_MS  1     // Core timing loop interval
 #define RSSI_SAMPLES        10    // Number of RSSI samples to average (50ms smoothing window)
 #define CROSSING_THRESHOLD  50    // Default RSSI threshold for crossing detection
-#define TIMING_PRIORITY     1     // FreeRTOS task priority (same as main loop for single-core ESP32-C3)
-#define WEB_PRIORITY        2     // Web server priority (medium)
+
+// FreeRTOS task priorities
+// Note: ESP32-D0WD (dual core) can run timing + web server concurrently
+//       ESP32-C3 (single core) shares CPU time between tasks
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+    #define TIMING_PRIORITY     3     // High priority for timing (critical on single core)
+    #define WEB_PRIORITY        1     // Lower priority for web server
+#else
+    #define TIMING_PRIORITY     2     // Timing on Core 1 (dual core has plenty of resources)
+    #define WEB_PRIORITY        1     // Web server on Core 0
+#endif
 
 // DMA ADC configuration
 #define USE_DMA_ADC         1     // Use DMA for ADC sampling (0 = polled, 1 = DMA)
