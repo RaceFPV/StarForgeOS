@@ -67,10 +67,21 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     Serial.println("Open browser to http://192.168.4.1 or http://sfos.local");
     
     // Create dedicated web server task
+    // ESP32 dual-core: Pin to Core 0 (same as WiFi stack)
+    // ESP32-C3 (single core): No core pinning
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);
     Serial.println("Web server task created");
+#else
+    xTaskCreatePinnedToCore(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle, 0);
+    Serial.println("Web server task created on Core 0");
+#endif
     
 #if ENABLE_LCD_UI
+    // IMPORTANT: Give WiFi more time to fully stabilize before initializing LCD
+    // LCD initialization uses I2C which can cause issues if WiFi isn't fully ready
+    delay(500);
+    
     // Initialize LCD UI (optional feature)
     Serial.println("\n====================================");
     Serial.println("Initializing LCD UI (optional)");
@@ -82,10 +93,25 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         _lcdUI->setStartCallback(lcdStartCallback);
         _lcdUI->setStopCallback(lcdStopCallback);
         _lcdUI->setClearCallback(lcdClearCallback);
+        _lcdUI->setTimingCore(_timingCore);  // Link timing core for settings access
         
-        // Create LCD UI task (low priority)
+        // Initialize settings display
+        uint8_t band, channel;
+        _timingCore->getRX5808Settings(band, channel);
+        _lcdUI->updateBandChannel(band, channel);
+        _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
+        _lcdUI->updateThreshold(_timingCore->getThreshold());
+        
+        // Create LCD UI task
+        // ESP32 dual-core: Pin to Core 0 (with WiFi/web, low priority)
+        // ESP32-C3 (single core): No core pinning
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
         xTaskCreate(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
         Serial.println("LCD UI task created");
+#else
+        xTaskCreatePinnedToCore(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle, 0);
+        Serial.println("LCD UI task created on Core 0");
+#endif
     } else {
         Serial.println("Warning: LCD UI initialization failed (optional feature)");
         if (_lcdUI) {
@@ -128,6 +154,28 @@ void StandaloneMode::process() {
     // Update LCD RSSI (every loop iteration for real-time display)
     if (_lcdUI && _timingCore) {
         _lcdUI->updateRSSI(_timingCore->getCurrentRSSI());
+        
+        // Update settings display periodically (every 100ms is enough)
+        static unsigned long last_settings_update = 0;
+        if (millis() - last_settings_update > 100) {
+            uint8_t band, channel;
+            _timingCore->getRX5808Settings(band, channel);
+            _lcdUI->updateBandChannel(band, channel);
+            _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
+            _lcdUI->updateThreshold(_timingCore->getThreshold());
+            last_settings_update = millis();
+        }
+        
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+        // Update battery status every 5 seconds
+        static unsigned long last_battery_update = 0;
+        if (millis() - last_battery_update > 5000) {
+            float voltage = readBatteryVoltage();
+            uint8_t percentage = calculateBatteryPercentage(voltage);
+            _lcdUI->updateBattery(voltage, percentage);
+            last_battery_update = millis();
+        }
+#endif
     }
 #endif
 }
@@ -1390,6 +1438,60 @@ void StandaloneMode::webServerTask(void* parameter) {
 }
 
 #if ENABLE_LCD_UI
+
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+// Battery voltage monitoring (requires custom PCB with voltage divider on IO4)
+float StandaloneMode::readBatteryVoltage() {
+    // Read ADC value (averaging for stability)
+    // Note: ADC2 (IO4) doesn't work during active WiFi TX, but works during idle/RX
+    uint32_t adc_sum = 0;
+    uint8_t successful_reads = 0;
+    
+    for (int i = 0; i < BATTERY_SAMPLES; i++) {
+        int adc_value = analogRead(BATTERY_ADC_PIN);
+        if (adc_value >= 0) {  // ADC2 returns -1 if WiFi is transmitting
+            adc_sum += adc_value;
+            successful_reads++;
+        }
+        delay(1);
+    }
+    
+    if (successful_reads == 0) {
+        // WiFi was busy entire time, return last known voltage or 0
+        Serial.println("[Battery] ADC2 busy (WiFi TX), skipping read");
+        return 0.0;  // Or cache last known value
+    }
+    
+    uint16_t adc_value = adc_sum / successful_reads;
+    
+    // Convert ADC reading to voltage
+    // ESP32 ADC: 0-4095 = 0-3.3V (but typically use 0-2.45V for accuracy)
+    // Account for voltage divider
+    float adc_voltage = (adc_value / 4095.0) * 3.3;
+    float battery_voltage = adc_voltage * BATTERY_VOLTAGE_DIVIDER;
+    
+    // Debug output every 10 calls to reduce spam
+    static uint8_t debug_counter = 0;
+    if (debug_counter++ % 10 == 0) {
+        Serial.printf("[Battery] ADC raw: %d (%d/%d reads), ADC voltage: %.2fV, Battery: %.2fV, %%: %d\n", 
+                      adc_value, successful_reads, BATTERY_SAMPLES, adc_voltage, battery_voltage,
+                      calculateBatteryPercentage(battery_voltage));
+    }
+    
+    return battery_voltage;
+}
+
+uint8_t StandaloneMode::calculateBatteryPercentage(float voltage) {
+    // Simple linear mapping (good enough for most LiPo cells)
+    // For better accuracy, use a LiPo discharge curve lookup table
+    if (voltage >= BATTERY_MAX_VOLTAGE) return 100;
+    if (voltage <= BATTERY_MIN_VOLTAGE) return 0;
+    
+    float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
+    return (uint8_t)percentage;
+}
+#endif
+
 // LCD button callbacks (static, called from LCD UI task)
 void StandaloneMode::lcdStartCallback() {
     if (_lcdInstance) {

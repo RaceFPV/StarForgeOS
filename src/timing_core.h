@@ -84,6 +84,8 @@ private:
   // RX5808 frequency stability tracking
   bool recent_freq_change;
   uint32_t freq_change_time;
+  uint8_t current_band;
+  uint8_t current_channel;
   
   // RX5808 control
   void setupRX5808();
@@ -128,6 +130,12 @@ public:
   void setThreshold(uint8_t threshold);
   void setActivated(bool active);
   void setDebugMode(bool debug_enabled);
+  void setRX5808Settings(uint8_t band, uint8_t channel);
+  
+  // Configuration getters
+  uint8_t getThreshold() const;
+  uint16_t getCurrentFrequency() const;
+  void getRX5808Settings(uint8_t& band, uint8_t& channel) const;
   
   // State access (thread-safe)
   TimingState getState() const;

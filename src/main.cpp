@@ -48,7 +48,7 @@ void setup() {
     Serial.println("=== StarForge ESP32 Timer ===");
     Serial.println("Version: 1.0.0");
     Serial.println();
-    Serial.println("Mode: STANDALONE/WIFI (Pin 0 = LOW/GND)");
+    Serial.println("Mode: STANDALONE/WIFI (GPIO22 = LOW/GND)");
     Serial.println("Initializing timing core...");
     WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
   }

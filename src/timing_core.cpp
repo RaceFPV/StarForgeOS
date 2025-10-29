@@ -15,6 +15,49 @@
 // Static variable to track last RX5808 bus access time (shared across all instances)
 static uint32_t lastRX5808BusTimeMs = 0;
 
+// RX5808 Frequency Table (in MHz)
+// Bands: A, B, E, F, R, L (indices 0-5)
+// Channels: 1-8 (indices 0-7)
+static const uint16_t freqTable[6][8] = {
+  // Band A (Boscam A)
+  {5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725},
+  // Band B (Boscam B)
+  {5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866},
+  // Band E (Boscam E / DJI)
+  {5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945},
+  // Band F (Fatshark / NexWave)
+  {5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880},
+  // Band R (Raceband)
+  {5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917},
+  // Band L (Low Race)
+  {5362, 5399, 5436, 5473, 5510, 5547, 5584, 5621}
+};
+
+// Helper function to get frequency from band/channel
+static uint16_t getFrequencyFromBandChannel(uint8_t band, uint8_t channel) {
+  if (band >= 6 || channel >= 8) return 5865;  // Default to A1 if invalid
+  return freqTable[band][channel];
+}
+
+// Helper function to get band/channel from frequency (finds closest match)
+static void getBandChannelFromFrequency(uint16_t freq, uint8_t& band, uint8_t& channel) {
+  uint16_t min_diff = 65535;
+  band = 0;
+  channel = 0;
+  
+  for (uint8_t b = 0; b < 6; b++) {
+    for (uint8_t c = 0; c < 8; c++) {
+      uint16_t diff = abs((int)freqTable[b][c] - (int)freq);
+      if (diff < min_diff) {
+        min_diff = diff;
+        band = b;
+        channel = c;
+      }
+    }
+  }
+}
+
+
 TimingCore::TimingCore() {
   // Initialize state
   memset(&state, 0, sizeof(state));
@@ -38,6 +81,8 @@ TimingCore::TimingCore() {
   debug_enabled = false; // Default to no debug output
   recent_freq_change = false;
   freq_change_time = 0;
+  current_band = 0;  // Default to band A
+  current_channel = 0;  // Default to channel 1
   
   // Initialize DMA
   adc_handle = nullptr;
@@ -109,10 +154,14 @@ void TimingCore::begin() {
   
   // Note: RSSI calibration will be done after debug mode is set
   
-  // Create timing task for ESP32-C3 single core
-  // NOTE: Task starts INACTIVE - must call setActivated(true) after mode initialization
-  // This prevents the task from consuming CPU before serial/WiFi setup completes on single-core ESP32-C3
+  // Create timing task with appropriate core pinning
+  // ESP32-C3 (single core): Use xTaskCreate (no core pinning)
+  // ESP32 dual-core: Pin to Core 1 (away from WiFi/Arduino on Core 0)
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
   xTaskCreate(timingTask, "TimingTask", 4096, this, TIMING_PRIORITY, &timing_task_handle);
+#else
+  xTaskCreatePinnedToCore(timingTask, "TimingTask", 4096, this, TIMING_PRIORITY, &timing_task_handle, 1);
+#endif
   
   // Do NOT activate here - will be activated after mode-specific initialization
   // state.activated = true;  // REMOVED - see main.cpp setup() for activation timing
@@ -867,6 +916,33 @@ bool TimingCore::isCrossing() const {
 void TimingCore::setDebugMode(bool debug_enabled) {
   this->debug_enabled = debug_enabled;
 }
+
+void TimingCore::setRX5808Settings(uint8_t band, uint8_t channel) {
+  if (band >= 6 || channel >= 8) return;  // Validate input
+  
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
+    current_band = band;
+    current_channel = channel;
+    uint16_t freq = getFrequencyFromBandChannel(band, channel);
+    setRX5808Frequency(freq);
+    xSemaphoreGive(timing_mutex);
+  }
+}
+
+// Configuration getters
+uint8_t TimingCore::getThreshold() const {
+  return state.threshold;
+}
+
+uint16_t TimingCore::getCurrentFrequency() const {
+  return state.frequency_mhz;
+}
+
+void TimingCore::getRX5808Settings(uint8_t& band, uint8_t& channel) const {
+  band = current_band;
+  channel = current_channel;
+}
+
 
 void TimingCore::testSPIPins() {
   Serial.println("\n=== RTC6715 Hardware Diagnostic ===");

@@ -11,9 +11,11 @@ lv_color_t LcdUI::buf[240 * 60];
 lv_disp_drv_t LcdUI::disp_drv;
 lv_indev_drv_t LcdUI::indev_drv;
 
-LcdUI::LcdUI() : tft(nullptr), touch(nullptr), 
-                 rssi_label(nullptr), lap_count_label(nullptr),
+LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
+                 rssi_label(nullptr), lap_count_label(nullptr), status_label(nullptr),
+                 battery_label(nullptr), battery_icon(nullptr),
                  start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr),
+                 band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr) {
     _instance = this;
 }
@@ -90,11 +92,15 @@ bool LcdUI::begin() {
 }
 
 void LcdUI::createUI() {
-    // Create a screen with dark background
+    // Create a scrollable screen with dark background
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_scr_load(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);
     lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_set_scroll_dir(scr, LV_DIR_VER);  // Enable vertical scrolling
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_size(scr, 240, 320);  // Physical screen size
+    lv_obj_set_content_height(scr, 680);  // Content is taller than screen - enables scrolling
     
     // === RSSI DISPLAY (Big box at top) ===
     lv_obj_t *rssi_box = lv_obj_create(scr);
@@ -122,6 +128,26 @@ void LcdUI::createUI() {
     lv_obj_set_style_pad_all(rssi_label, 0, 0);
     lv_obj_set_pos(rssi_label, 85, 35);
     
+#if ENABLE_BATTERY_MONITOR
+    // Battery indicator (top-right of RSSI box) - only if custom PCB has voltage divider
+    battery_label = lv_label_create(rssi_box);
+    lv_label_set_text(battery_label, "---");  // Unknown initially (will update when divider connected)
+    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(battery_label, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_bg_opa(battery_label, LV_OPA_TRANSP, 0);
+    lv_obj_set_pos(battery_label, 170, 8);
+    
+    // Simple battery icon (rectangle with fill level)
+    battery_icon = lv_obj_create(rssi_box);
+    lv_obj_set_size(battery_icon, 30, 15);
+    lv_obj_set_pos(battery_icon, 175, 28);
+    lv_obj_set_style_bg_color(battery_icon, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_border_width(battery_icon, 1, 0);
+    lv_obj_set_style_border_color(battery_icon, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_radius(battery_icon, 2, 0);
+    lv_obj_clear_flag(battery_icon, LV_OBJ_FLAG_SCROLLABLE);
+#endif
+    
     // === LAP COUNT (Below RSSI) ===
     lv_obj_t *lap_box = lv_obj_create(scr);
     lv_obj_set_size(lap_box, 220, 70);
@@ -147,6 +173,15 @@ void LcdUI::createUI() {
     lv_obj_set_style_bg_opa(lap_count_label, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(lap_count_label, 0, 0);
     lv_obj_set_pos(lap_count_label, 100, 30);
+    
+    // Status label (right side of lap box)
+    status_label = lv_label_create(lap_box);
+    lv_label_set_text(status_label, "READY");
+    lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0x00ff00), 0);
+    lv_obj_set_style_bg_opa(status_label, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(status_label, 0, 0);
+    lv_obj_set_pos(status_label, 150, 8);
     
     // === BUTTONS (3 buttons stacked) ===
     // Start button
@@ -194,6 +229,156 @@ void LcdUI::createUI() {
     lv_obj_set_style_bg_opa(clear_label, LV_OPA_TRANSP, 0);
     lv_obj_center(clear_label);
     
+    // === SETTINGS SECTION (Scroll down to see) ===
+    // Section header
+    lv_obj_t *settings_header = lv_label_create(scr);
+    lv_label_set_text(settings_header, "--- SETTINGS ---");
+    lv_obj_set_style_text_color(settings_header, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(settings_header, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_bg_opa(settings_header, LV_OPA_TRANSP, 0);
+    lv_obj_set_pos(settings_header, 60, 345);
+    
+    // Band selector (A/B/E/F/R/L)
+    lv_obj_t *band_box = lv_obj_create(scr);
+    lv_obj_set_size(band_box, 220, 70);
+    lv_obj_set_pos(band_box, 10, 380);
+    lv_obj_set_style_bg_color(band_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(band_box, 1, 0);
+    lv_obj_set_style_border_color(band_box, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(band_box, 5, 0);
+    lv_obj_clear_flag(band_box, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t *band_title = lv_label_create(band_box);
+    lv_label_set_text(band_title, "Band");
+    lv_obj_set_style_text_color(band_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(band_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(band_title, 5, 5);
+    
+    lv_obj_t *band_prev = lv_btn_create(band_box);
+    lv_obj_set_size(band_prev, 40, 35);
+    lv_obj_set_pos(band_prev, 10, 28);
+    lv_obj_set_style_bg_color(band_prev, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(band_prev, band_prev_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *band_prev_lbl = lv_label_create(band_prev);
+    lv_label_set_text(band_prev_lbl, "<");
+    lv_obj_center(band_prev_lbl);
+    
+    band_label = lv_label_create(band_box);
+    lv_label_set_text(band_label, "A");
+    lv_obj_set_style_text_font(band_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(band_label, lv_color_hex(0x00aaff), 0);
+    lv_obj_set_pos(band_label, 90, 25);
+    
+    lv_obj_t *band_next = lv_btn_create(band_box);
+    lv_obj_set_size(band_next, 40, 35);
+    lv_obj_set_pos(band_next, 160, 28);
+    lv_obj_set_style_bg_color(band_next, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(band_next, band_next_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *band_next_lbl = lv_label_create(band_next);
+    lv_label_set_text(band_next_lbl, ">");
+    lv_obj_center(band_next_lbl);
+    
+    // Channel selector (1-8)
+    lv_obj_t *channel_box = lv_obj_create(scr);
+    lv_obj_set_size(channel_box, 220, 70);
+    lv_obj_set_pos(channel_box, 10, 460);
+    lv_obj_set_style_bg_color(channel_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(channel_box, 1, 0);
+    lv_obj_set_style_border_color(channel_box, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(channel_box, 5, 0);
+    lv_obj_clear_flag(channel_box, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t *channel_title = lv_label_create(channel_box);
+    lv_label_set_text(channel_title, "Channel");
+    lv_obj_set_style_text_color(channel_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(channel_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(channel_title, 5, 5);
+    
+    lv_obj_t *channel_prev = lv_btn_create(channel_box);
+    lv_obj_set_size(channel_prev, 40, 35);
+    lv_obj_set_pos(channel_prev, 10, 28);
+    lv_obj_set_style_bg_color(channel_prev, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(channel_prev, channel_prev_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *channel_prev_lbl = lv_label_create(channel_prev);
+    lv_label_set_text(channel_prev_lbl, "<");
+    lv_obj_center(channel_prev_lbl);
+    
+    channel_label = lv_label_create(channel_box);
+    lv_label_set_text(channel_label, "1");
+    lv_obj_set_style_text_font(channel_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(channel_label, lv_color_hex(0x00aaff), 0);
+    lv_obj_set_pos(channel_label, 90, 25);
+    
+    lv_obj_t *channel_next = lv_btn_create(channel_box);
+    lv_obj_set_size(channel_next, 40, 35);
+    lv_obj_set_pos(channel_next, 160, 28);
+    lv_obj_set_style_bg_color(channel_next, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(channel_next, channel_next_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *channel_next_lbl = lv_label_create(channel_next);
+    lv_label_set_text(channel_next_lbl, ">");
+    lv_obj_center(channel_next_lbl);
+    
+    // Frequency display (read-only, updates based on band/channel)
+    lv_obj_t *freq_box = lv_obj_create(scr);
+    lv_obj_set_size(freq_box, 220, 45);
+    lv_obj_set_pos(freq_box, 10, 540);
+    lv_obj_set_style_bg_color(freq_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(freq_box, 1, 0);
+    lv_obj_set_style_border_color(freq_box, lv_color_hex(0x333333), 0);
+    lv_obj_clear_flag(freq_box, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t *freq_title = lv_label_create(freq_box);
+    lv_label_set_text(freq_title, "Frequency:");
+    lv_obj_set_style_text_color(freq_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(freq_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(freq_title, 10, 5);
+    
+    freq_label = lv_label_create(freq_box);
+    lv_label_set_text(freq_label, "5865 MHz");
+    lv_obj_set_style_text_font(freq_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(freq_label, lv_color_hex(0xffaa00), 0);
+    lv_obj_set_pos(freq_label, 100, 14);
+    
+    // Threshold adjustment
+    lv_obj_t *threshold_box = lv_obj_create(scr);
+    lv_obj_set_size(threshold_box, 220, 70);
+    lv_obj_set_pos(threshold_box, 10, 595);
+    lv_obj_set_style_bg_color(threshold_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(threshold_box, 1, 0);
+    lv_obj_set_style_border_color(threshold_box, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(threshold_box, 5, 0);
+    lv_obj_clear_flag(threshold_box, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t *threshold_title = lv_label_create(threshold_box);
+    lv_label_set_text(threshold_title, "Threshold");
+    lv_obj_set_style_text_color(threshold_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(threshold_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_pos(threshold_title, 5, 5);
+    
+    lv_obj_t *threshold_dec = lv_btn_create(threshold_box);
+    lv_obj_set_size(threshold_dec, 40, 35);
+    lv_obj_set_pos(threshold_dec, 10, 28);
+    lv_obj_set_style_bg_color(threshold_dec, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(threshold_dec, threshold_dec_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *threshold_dec_lbl = lv_label_create(threshold_dec);
+    lv_label_set_text(threshold_dec_lbl, "-");
+    lv_obj_center(threshold_dec_lbl);
+    
+    threshold_label = lv_label_create(threshold_box);
+    lv_label_set_text(threshold_label, "96");
+    lv_obj_set_style_text_font(threshold_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(threshold_label, lv_color_hex(0xff00ff), 0);
+    lv_obj_set_pos(threshold_label, 80, 25);
+    
+    lv_obj_t *threshold_inc = lv_btn_create(threshold_box);
+    lv_obj_set_size(threshold_inc, 40, 35);
+    lv_obj_set_pos(threshold_inc, 160, 28);
+    lv_obj_set_style_bg_color(threshold_inc, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_event_cb(threshold_inc, threshold_inc_event, LV_EVENT_CLICKED, this);
+    lv_obj_t *threshold_inc_lbl = lv_label_create(threshold_inc);
+    lv_label_set_text(threshold_inc_lbl, "+");
+    lv_obj_center(threshold_inc_lbl);
+    
     Serial.println("LCD: UI created successfully");
 }
 
@@ -215,9 +400,15 @@ void LcdUI::updateLapCount(uint16_t laps) {
 }
 
 void LcdUI::updateRaceStatus(bool racing) {
-    // Could update UI to show racing status (e.g., change border colors)
-    // For now, just log it
-    // Serial.printf("LCD: Race status: %s\n", racing ? "RACING" : "READY");
+    if (status_label) {
+        if (racing) {
+            lv_label_set_text(status_label, "RACING");
+            lv_obj_set_style_text_color(status_label, lv_color_hex(0xff0000), 0);  // Red when racing
+        } else {
+            lv_label_set_text(status_label, "READY");
+            lv_obj_set_style_text_color(status_label, lv_color_hex(0x00ff00), 0);  // Green when ready
+        }
+    }
 }
 
 // Callback setters
@@ -232,6 +423,82 @@ void LcdUI::setStopCallback(void (*callback)()) {
 void LcdUI::setClearCallback(void (*callback)()) {
     _clearCallback = callback;
 }
+
+void LcdUI::setTimingCore(TimingCore* core) {
+    _timingCore = core;
+}
+
+// Settings update functions
+void LcdUI::updateBandChannel(uint8_t band, uint8_t channel) {
+    if (band_label) {
+        const char* bands[] = {"A", "B", "E", "F", "R", "L"};
+        if (band < 6) {
+            lv_label_set_text(band_label, bands[band]);
+        }
+    }
+    if (channel_label) {
+        char buf[4];
+        snprintf(buf, sizeof(buf), "%d", channel + 1);  // Display as 1-8 instead of 0-7
+        lv_label_set_text(channel_label, buf);
+    }
+}
+
+void LcdUI::updateFrequency(uint16_t freq_mhz) {
+    if (freq_label) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d MHz", freq_mhz);
+        lv_label_set_text(freq_label, buf);
+    }
+}
+
+void LcdUI::updateThreshold(uint8_t threshold) {
+    if (threshold_label) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d", threshold);
+        lv_label_set_text(threshold_label, buf);
+    }
+}
+
+void LcdUI::updateBattery(float voltage, uint8_t percentage) {
+    // Update percentage text
+    if (battery_label) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d%%", percentage);
+        lv_label_set_text(battery_label, buf);
+        
+        // Color code based on battery level
+        uint32_t color;
+        if (percentage > 60) {
+            color = 0x00ff00;  // Green (good)
+        } else if (percentage > 20) {
+            color = 0xffaa00;  // Orange (warning)
+        } else {
+            color = 0xff0000;  // Red (critical)
+        }
+        lv_obj_set_style_text_color(battery_label, lv_color_hex(color), 0);
+    }
+    
+    // Update battery icon fill level and color
+    if (battery_icon) {
+        // Resize icon width based on percentage (max 30px)
+        uint16_t width = (percentage * 30) / 100;
+        if (width < 3) width = 3;  // Minimum visible width
+        lv_obj_set_width(battery_icon, width);
+        
+        // Color code the icon
+        uint32_t color;
+        if (percentage > 60) {
+            color = 0x00ff00;  // Green
+        } else if (percentage > 20) {
+            color = 0xffaa00;  // Orange
+        } else {
+            color = 0xff0000;  // Red
+        }
+        lv_obj_set_style_bg_color(battery_icon, lv_color_hex(color), 0);
+    }
+}
+
+
 
 // Button event handlers (LVGL callbacks)
 void LcdUI::start_btn_event(lv_event_t* e) {
@@ -257,6 +524,76 @@ void LcdUI::clear_btn_event(lv_event_t* e) {
         ui->_clearCallback();
     }
 }
+
+// Settings button event handlers
+void LcdUI::band_prev_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t band, channel;
+        ui->_timingCore->getRX5808Settings(band, channel);
+        if (band > 0) band--;
+        else band = 5;  // Wrap to L
+        ui->_timingCore->setRX5808Settings(band, channel);
+        Serial.printf("LCD: Band changed to %d\n", band);
+    }
+}
+
+void LcdUI::band_next_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t band, channel;
+        ui->_timingCore->getRX5808Settings(band, channel);
+        if (band < 5) band++;
+        else band = 0;  // Wrap to A
+        ui->_timingCore->setRX5808Settings(band, channel);
+        Serial.printf("LCD: Band changed to %d\n", band);
+    }
+}
+
+void LcdUI::channel_prev_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t band, channel;
+        ui->_timingCore->getRX5808Settings(band, channel);
+        if (channel > 0) channel--;
+        else channel = 7;  // Wrap to 8
+        ui->_timingCore->setRX5808Settings(band, channel);
+        Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+    }
+}
+
+void LcdUI::channel_next_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t band, channel;
+        ui->_timingCore->getRX5808Settings(band, channel);
+        if (channel < 7) channel++;
+        else channel = 0;  // Wrap to 1
+        ui->_timingCore->setRX5808Settings(band, channel);
+        Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+    }
+}
+
+void LcdUI::threshold_dec_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t threshold = ui->_timingCore->getThreshold();
+        if (threshold > 10) threshold -= 5;  // Decrement by 5
+        ui->_timingCore->setThreshold(threshold);
+        Serial.printf("LCD: Threshold decreased to %d\n", threshold);
+    }
+}
+
+void LcdUI::threshold_inc_event(lv_event_t* e) {
+    LcdUI* ui = (LcdUI*)e->user_data;
+    if (ui && ui->_timingCore) {
+        uint8_t threshold = ui->_timingCore->getThreshold();
+        if (threshold < 245) threshold += 5;  // Increment by 5
+        ui->_timingCore->setThreshold(threshold);
+        Serial.printf("LCD: Threshold increased to %d\n", threshold);
+    }
+}
+
 
 // LVGL display flush callback (DMA with wait to prevent artifacts)
 void LcdUI::my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {

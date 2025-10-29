@@ -13,11 +13,13 @@
 #elif defined(BOARD_JC2432W328C)
     // JC2432W328C - ESP32-D0WD-V3 with ST7789 LCD (240x320) and CST820 touch
     // This board has a unique pin layout for the integrated display
-    #define RSSI_INPUT_PIN      34    // GPIO34 (ADC1_CH6) - RSSI input from RX5808
-    #define RX5808_DATA_PIN     23    // GPIO23 (MOSI) - DATA to RX5808
-    #define RX5808_CLK_PIN      18    // GPIO18 (SCK) - CLK to RX5808
-    #define RX5808_SEL_PIN      5     // GPIO5 (CS) - LE (Latch Enable) to RX5808
-    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch (one of the broken out pins)
+    // Available broken-out GPIOs: 35, 22, 21, 16, 4, 17 (27 NOT available)
+    #define RSSI_INPUT_PIN      35    // GPIO35 (ADC1_CH7) - RSSI input from RX5808 (input only, perfect for ADC)
+    #define RX5808_DATA_PIN     21    // GPIO21 - DATA to RX5808 (repurposed from touch interrupt)
+    #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
+    #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
+    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch
+    #define BATTERY_ADC_PIN     4     // GPIO4 (ADC2_CH0) - Battery voltage monitoring via external voltage divider
     #define UART_BAUD_RATE      115200  // UART bridge baud rate
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
@@ -86,6 +88,17 @@
     #define LCD_TOUCH_RST   25    // Touch reset pin
     #define LCD_TOUCH_INT   21    // Touch interrupt pin
     #define LCD_BACKLIGHT   27    // Backlight control pin
+    
+    // Battery monitoring configuration (requires custom PCB with voltage divider)
+    // IO4 (ADC2_CH0) will be used with an external 2:1 voltage divider circuit
+    // Note: ADC2 doesn't work during active WiFi TX, but works during RX/idle
+    // Circuit: Battery+ -> 100kΩ -> IO4 -> 100kΩ -> GND (optional: 100nF cap to GND)
+    // This is DISABLED by default (set to 1 when custom PCB with divider is connected)
+    #define ENABLE_BATTERY_MONITOR  1     // Enable when custom PCB with voltage divider is ready
+    #define BATTERY_VOLTAGE_DIVIDER 2.0   // Voltage divider ratio (2:1 with equal resistors)
+    #define BATTERY_MIN_VOLTAGE     3.0   // Minimum battery voltage (empty) - 3.0V LiPo
+    #define BATTERY_MAX_VOLTAGE     4.2   // Maximum battery voltage (full) - 4.2V LiPo
+    #define BATTERY_SAMPLES         10    // Number of samples to average for stability
 #endif
 
 // Data storage

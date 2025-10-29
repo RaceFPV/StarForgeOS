@@ -41,6 +41,12 @@ private:
     static void lcdStopCallback();
     static void lcdClearCallback();
     static StandaloneMode* _lcdInstance;  // For static callbacks
+    
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+    // Battery voltage monitoring (requires custom PCB with voltage divider)
+    float readBatteryVoltage();
+    uint8_t calculateBatteryPercentage(float voltage);
+#endif
 #endif
 
 
