@@ -34,14 +34,13 @@ void setup() {
   Serial.begin(UART_BAUD_RATE);
   delay(50);  // Brief delay for USB to stabilize
   
-  // Initialize mode selection pin (floating=Node, GND=WiFi, HIGH=Node)
+  // Initialize mode selection pin (LOW=Standalone, HIGH/floating=RotorHazard)
   pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
   
-  // TEMPORARY: Force RotorHazard node mode for testing
   // Determine initial mode BEFORE any serial output
-  // bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
-  // current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
-  current_mode = MODE_ROTORHAZARD;  // FORCE NODE MODE FOR TESTING
+  // LOW (GND) = Standalone mode, HIGH (floating/pullup) = RotorHazard mode
+  bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
+  current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
   
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
@@ -116,12 +115,12 @@ void checkModeSwitch() {
   
   if (current_switch_state != last_switch_state) {
     // Determine new mode
-    // LOW (GND) = WiFi mode, HIGH (floating/pullup) = RotorHazard mode (default)
+    // LOW (GND) = Standalone/WiFi mode, HIGH (floating/pullup) = RotorHazard mode (default)
     OperationMode new_mode;
     if (current_switch_state == LOW) {
-      new_mode = MODE_STANDALONE;  // Switch to GND = WiFi mode
+      new_mode = MODE_STANDALONE;  // Switch to GND = Standalone mode (LCD active)
     } else {
-      new_mode = MODE_ROTORHAZARD; // Switch to 3.3V or floating = RotorHazard mode (default)
+      new_mode = MODE_ROTORHAZARD; // Switch floating/HIGH = RotorHazard mode
     }
     
     if (new_mode != current_mode || !mode_initialized) {

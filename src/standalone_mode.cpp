@@ -6,7 +6,15 @@
 #include <string.h>
 #include "config.h"
 
+#if ENABLE_LCD_UI
+StandaloneMode* StandaloneMode::_lcdInstance = nullptr;
+#endif
+
 StandaloneMode::StandaloneMode() : _server(80), _timingCore(nullptr) {
+#if ENABLE_LCD_UI
+    _lcdUI = nullptr;
+    _lcdInstance = this;
+#endif
 }
 
 void StandaloneMode::begin(TimingCore* timingCore) {
@@ -61,6 +69,32 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     // Create dedicated web server task
     xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);
     Serial.println("Web server task created");
+    
+#if ENABLE_LCD_UI
+    // Initialize LCD UI (optional feature)
+    Serial.println("\n====================================");
+    Serial.println("Initializing LCD UI (optional)");
+    Serial.println("====================================");
+    
+    _lcdUI = new LcdUI();
+    if (_lcdUI && _lcdUI->begin()) {
+        // Set button callbacks
+        _lcdUI->setStartCallback(lcdStartCallback);
+        _lcdUI->setStopCallback(lcdStopCallback);
+        _lcdUI->setClearCallback(lcdClearCallback);
+        
+        // Create LCD UI task (low priority)
+        xTaskCreate(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
+        Serial.println("LCD UI task created");
+    } else {
+        Serial.println("Warning: LCD UI initialization failed (optional feature)");
+        if (_lcdUI) {
+            delete _lcdUI;
+            _lcdUI = nullptr;
+        }
+    }
+#endif
+    
     Serial.println("Setup complete!");
 }
 
@@ -81,7 +115,21 @@ void StandaloneMode::process() {
         }
         
         Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
+        
+#if ENABLE_LCD_UI
+        // Update LCD lap count
+        if (_lcdUI) {
+            _lcdUI->updateLapCount(_laps.size());
+        }
+#endif
     }
+    
+#if ENABLE_LCD_UI
+    // Update LCD RSSI (every loop iteration for real-time display)
+    if (_lcdUI && _timingCore) {
+        _lcdUI->updateRSSI(_timingCore->getCurrentRSSI());
+    }
+#endif
 }
 
 void StandaloneMode::setupWiFiAP() {
@@ -200,6 +248,13 @@ void StandaloneMode::handleStartRace() {
     _raceStartTime = millis();
     _laps.clear();
     
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateRaceStatus(true);
+        _lcdUI->updateLapCount(0);
+    }
+#endif
+    
     Serial.println("Race started!");
     _server.send(200, "application/json", "{\"status\":\"race_started\"}");
 }
@@ -207,12 +262,24 @@ void StandaloneMode::handleStartRace() {
 void StandaloneMode::handleStopRace() {
     _raceActive = false;
     
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateRaceStatus(false);
+    }
+#endif
+    
     Serial.println("Race stopped!");
     _server.send(200, "application/json", "{\"status\":\"race_stopped\"}");
 }
 
 void StandaloneMode::handleClearLaps() {
     _laps.clear();
+    
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateLapCount(0);
+    }
+#endif
     
     Serial.println("Laps cleared!");
     _server.send(200, "application/json", "{\"status\":\"laps_cleared\"}");
@@ -1322,3 +1389,44 @@ void StandaloneMode::webServerTask(void* parameter) {
     }
 }
 
+#if ENABLE_LCD_UI
+// LCD button callbacks (static, called from LCD UI task)
+void StandaloneMode::lcdStartCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_raceActive = true;
+        _lcdInstance->_raceStartTime = millis();
+        _lcdInstance->_laps.clear();
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateRaceStatus(true);
+            _lcdInstance->_lcdUI->updateLapCount(0);
+        }
+        
+        Serial.println("[LCD] Race started!");
+    }
+}
+
+void StandaloneMode::lcdStopCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_raceActive = false;
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateRaceStatus(false);
+        }
+        
+        Serial.println("[LCD] Race stopped!");
+    }
+}
+
+void StandaloneMode::lcdClearCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_laps.clear();
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateLapCount(0);
+        }
+        
+        Serial.println("[LCD] Laps cleared!");
+    }
+}
+#endif

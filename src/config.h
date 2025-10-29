@@ -10,6 +10,15 @@
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
     #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
+#elif defined(BOARD_JC2432W328C)
+    // JC2432W328C - ESP32-D0WD-V3 with ST7789 LCD (240x320) and CST820 touch
+    // This board has a unique pin layout for the integrated display
+    #define RSSI_INPUT_PIN      34    // GPIO34 (ADC1_CH6) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     23    // GPIO23 (MOSI) - DATA to RX5808
+    #define RX5808_CLK_PIN      18    // GPIO18 (SCK) - CLK to RX5808
+    #define RX5808_SEL_PIN      5     // GPIO5 (CS) - LE (Latch Enable) to RX5808
+    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch (one of the broken out pins)
+    #define UART_BAUD_RATE      115200  // UART bridge baud rate
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
     // Pin mapping compatible with standard ESP32 dev boards
@@ -61,6 +70,23 @@
 #define WIFI_AP_PASSWORD    ""    // Open network for simplicity
 #define WEB_SERVER_PORT     80
 #define MDNS_HOSTNAME       "sfos"         // mDNS hostname (accessible as sfos.local)
+
+// LCD/Touchscreen configuration
+// LCD UI is only available on boards with integrated displays
+#if defined(BOARD_JC2432W328C)
+    #define ENABLE_LCD_UI   1     // JC2432W328C has integrated ST7789 LCD + CST820 touch
+#else
+    #define ENABLE_LCD_UI   0     // No LCD by default on other boards
+#endif
+
+#if ENABLE_LCD_UI
+    #define LCD_PRIORITY    1     // Low priority for LCD updates (below timing & web)
+    #define LCD_I2C_SDA     33    // Touch I2C SDA pin
+    #define LCD_I2C_SCL     32    // Touch I2C SCL pin
+    #define LCD_TOUCH_RST   25    // Touch reset pin
+    #define LCD_TOUCH_INT   21    // Touch interrupt pin
+    #define LCD_BACKLIGHT   27    // Backlight control pin
+#endif
 
 // Data storage
 #define MAX_LAPS_STORED     100   // Maximum laps to store in memory

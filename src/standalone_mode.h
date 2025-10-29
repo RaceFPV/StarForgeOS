@@ -9,6 +9,10 @@
 #include "timing_core.h" // To interact with timing data
 #include "config.h"
 
+#if ENABLE_LCD_UI
+#include "lcd_ui.h"
+#endif
+
 class StandaloneMode {
 public:
     StandaloneMode();
@@ -26,6 +30,18 @@ private:
     TaskHandle_t _webTaskHandle;
     static void webServerTask(void* parameter);
     String _apSSID;
+
+#if ENABLE_LCD_UI
+    // LCD UI
+    LcdUI* _lcdUI;
+    TaskHandle_t _lcdTaskHandle;
+    
+    // LCD button callbacks (called from LCD task, must be thread-safe)
+    static void lcdStartCallback();
+    static void lcdStopCallback();
+    static void lcdClearCallback();
+    static StandaloneMode* _lcdInstance;  // For static callbacks
+#endif
 
 
     void handleRoot();
