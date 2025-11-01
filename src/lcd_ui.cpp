@@ -17,8 +17,9 @@ LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
                  battery_label(nullptr), battery_icon(nullptr),
                  start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr),
                  band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
+                 brightness_slider(nullptr), brightness_label(nullptr),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
-                 _lastGraphUpdate(0) {
+                 _lastGraphUpdate(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
     _instance = this;
 }
 
@@ -46,9 +47,18 @@ bool LcdUI::begin() {
     // tft->initDMA();  // DMA disabled - causes issues with LVGL double buffering
     Serial.println("LCD: TFT initialized");
     
-    // Turn on backlight AFTER display init
-    digitalWrite(LCD_BACKLIGHT, HIGH);
-    Serial.println("LCD: Backlight ON");
+    // Turn on backlight AFTER display init (use PWM for brightness control)
+    pinMode(LCD_BACKLIGHT, OUTPUT);
+    
+    // Load user brightness preference from SPIFFS
+    loadBrightnessFromSPIFFS();
+    
+    // Convert percentage (10-100%) to PWM value (25-255)
+    uint8_t pwm_value = map(_userBrightness, 10, 100, 25, 255);
+    analogWrite(LCD_BACKLIGHT, pwm_value);
+    Serial.printf("LCD: Backlight ON (%d%% brightness)\n", _userBrightness);
+    _lastTouchTime = millis();  // Initialize touch timer
+    _screenDimmed = false;
     
     // Initialize LVGL
     Serial.println("LCD: Initializing LVGL...");
@@ -407,6 +417,40 @@ void LcdUI::createUI() {
     lv_label_set_text(threshold_inc_lbl, "+");
     lv_obj_center(threshold_inc_lbl);
     
+    // Brightness slider (at bottom of settings)
+    lv_obj_t* brightness_box = lv_obj_create(scr);
+    lv_obj_set_size(brightness_box, 220, 80);
+    lv_obj_set_pos(brightness_box, 10, 675);  // Below threshold (595 + 70 + 10 margin)
+    lv_obj_set_style_bg_color(brightness_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(brightness_box, 0, 0);
+    lv_obj_set_style_radius(brightness_box, 8, 0);
+    lv_obj_clear_flag(brightness_box, LV_OBJ_FLAG_SCROLLABLE);  // Disable scrollbars on container
+    
+    lv_obj_t* brightness_title = lv_label_create(brightness_box);
+    lv_label_set_text(brightness_title, "BRIGHTNESS");
+    lv_obj_set_style_text_color(brightness_title, lv_color_hex(0xaaaaaa), 0);
+    lv_obj_set_pos(brightness_title, 10, 5);
+    
+    brightness_label = lv_label_create(brightness_box);
+    char brightness_buf[8];
+    snprintf(brightness_buf, sizeof(brightness_buf), "%d%%", _userBrightness);
+    lv_label_set_text(brightness_label, brightness_buf);
+    lv_obj_set_style_text_font(brightness_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(brightness_label, lv_color_hex(0xffaa00), 0);
+    lv_obj_set_pos(brightness_label, 175, 48);
+    
+    brightness_slider = lv_slider_create(brightness_box);
+    lv_obj_set_size(brightness_slider, 155, 10);
+    lv_obj_set_pos(brightness_slider, 10, 50);
+    lv_slider_set_range(brightness_slider, 10, 100);  // 10-100%
+    lv_slider_set_value(brightness_slider, _userBrightness, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0xffaa00), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(brightness_slider, lv_color_hex(0xffcc00), LV_PART_KNOB);
+    lv_obj_add_flag(brightness_slider, LV_OBJ_FLAG_SCROLL_ON_FOCUS);  // Disable horizontal scrolling
+    lv_obj_clear_flag(brightness_slider, LV_OBJ_FLAG_SCROLLABLE);     // Not scrollable
+    lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_VALUE_CHANGED, this);
+    
     Serial.println("LCD: UI created successfully");
 }
 
@@ -663,6 +707,9 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
         data->state = LV_INDEV_STATE_PR;
         data->point.x = touchX;
         data->point.y = touchY;
+        
+        // Wake screen on touch
+        _instance->wakeScreen();
     } else {
         data->state = LV_INDEV_STATE_REL;
     }
@@ -674,9 +721,112 @@ void LcdUI::uiTask(void* parameter) {
     
     while (true) {
         lv_timer_handler();  // LVGL task handler (must be called regularly)
+        
+        // Update screen brightness (dim after timeout)
+        if (_instance) {
+            _instance->updateScreenBrightness();
+        }
+        
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms delay = ~200Hz update rate
     }
 }
 
+// Update screen brightness based on activity timeout
+void LcdUI::updateScreenBrightness() {
+    unsigned long now = millis();
+    unsigned long timeSinceTouch = now - _lastTouchTime;
+    
+    // Check if we should dim the screen
+    if (!_screenDimmed && timeSinceTouch >= SCREEN_DIM_TIMEOUT) {
+        // Time to dim
+        analogWrite(LCD_BACKLIGHT, SCREEN_DIM_BRIGHTNESS);
+        _screenDimmed = true;
+        Serial.println("LCD: Screen dimmed (power save)");
+    }
+}
+
+// Wake screen to full brightness
+void LcdUI::wakeScreen() {
+    _lastTouchTime = millis();
+    
+    // Only update if screen was dimmed (avoid unnecessary PWM writes)
+    if (_screenDimmed) {
+        setBrightness(_userBrightness);  // Restore user's brightness
+        _screenDimmed = false;
+        Serial.println("LCD: Screen woke up (touch detected)");
+    }
+}
+
+// Set brightness (10-100%)
+void LcdUI::setBrightness(uint8_t percent) {
+    // Clamp to valid range
+    if (percent < 10) percent = 10;
+    if (percent > 100) percent = 100;
+    
+    _userBrightness = percent;
+    
+    // Convert percentage (10-100%) to PWM value (25-255)
+    uint8_t pwm_value = map(percent, 10, 100, 25, 255);
+    analogWrite(LCD_BACKLIGHT, pwm_value);
+}
+
+// Load brightness from SPIFFS
+void LcdUI::loadBrightnessFromSPIFFS() {
+    fs::File file = SPIFFS.open("/brightness.txt", "r");
+    if (file) {
+        String content = file.readStringUntil('\n');
+        _userBrightness = content.toInt();
+        
+        // Validate range
+        if (_userBrightness < 10 || _userBrightness > 100) {
+            _userBrightness = 100;  // Default to 100%
+        }
+        
+        file.close();
+        Serial.printf("LCD: Loaded brightness from SPIFFS: %d%%\n", _userBrightness);
+    } else {
+        _userBrightness = 100;  // Default to 100%
+        Serial.println("LCD: No saved brightness, using default 100%");
+    }
+}
+
+// Save brightness to SPIFFS
+void LcdUI::saveBrightnessToSPIFFS() {
+    fs::File file = SPIFFS.open("/brightness.txt", "w");
+    if (file) {
+        file.println(_userBrightness);
+        file.close();
+        Serial.printf("LCD: Saved brightness to SPIFFS: %d%%\n", _userBrightness);
+    } else {
+        Serial.println("LCD: Failed to save brightness to SPIFFS");
+    }
+}
+
+// Brightness slider event
+void LcdUI::brightness_slider_event(lv_event_t* e) {
+    if (!_instance) return;
+    
+    lv_obj_t* slider = lv_event_get_target(e);
+    int32_t value = lv_slider_get_value(slider);
+    
+    // Update label
+    if (_instance->brightness_label) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%ld%%", value);
+        lv_label_set_text(_instance->brightness_label, buf);
+    }
+    
+    // Apply brightness immediately
+    _instance->setBrightness((uint8_t)value);
+    
+    // Save to SPIFFS
+    _instance->saveBrightnessToSPIFFS();
+    
+    // Reset dim timer (keep screen on while adjusting)
+    _instance->_lastTouchTime = millis();
+    _instance->_screenDimmed = false;
+}
+
 #endif // ENABLE_LCD_UI
+
 

@@ -64,6 +64,8 @@ private:
     lv_obj_t* channel_label;
     lv_obj_t* freq_label;
     lv_obj_t* threshold_label;
+    lv_obj_t* brightness_slider;
+    lv_obj_t* brightness_label;
     
     // Callbacks for button events
     void (*_startCallback)();
@@ -73,6 +75,18 @@ private:
     // RSSI graph rate limiting
     unsigned long _lastGraphUpdate;
     static const unsigned long GRAPH_UPDATE_INTERVAL = 150;  // Update graph every 150ms
+    
+    // Screen dimming (power saving)
+    unsigned long _lastTouchTime;
+    bool _screenDimmed;
+    uint8_t _userBrightness;  // User's preferred brightness (10-100%)
+    static const unsigned long SCREEN_DIM_TIMEOUT = 60000;  // Dim after 60 seconds (1 minute)
+    static const uint8_t SCREEN_DIM_BRIGHTNESS = 25;        // 10% brightness when dimmed (0-255)
+    void updateScreenBrightness();
+    void wakeScreen();
+    void setBrightness(uint8_t percent);  // Set user brightness (10-100%)
+    void loadBrightnessFromSPIFFS();
+    void saveBrightnessToSPIFFS();
     
     // LVGL display buffer
     static lv_disp_draw_buf_t draw_buf;
@@ -94,6 +108,7 @@ private:
     static void channel_next_event(lv_event_t* e);
     static void threshold_dec_event(lv_event_t* e);
     static void threshold_inc_event(lv_event_t* e);
+    static void brightness_slider_event(lv_event_t* e);
     
     // Create UI elements
     void createUI();

@@ -59,7 +59,14 @@
 #endif
 
 // DMA ADC configuration
-#define USE_DMA_ADC         1     // Use DMA for ADC sampling (0 = polled, 1 = DMA)
+// Note: DMA ADC uses ADC1 continuously, which conflicts with analogRead() on ADC1 pins
+// For boards with battery monitoring on ADC1 pins, disable DMA and use polled mode
+#if defined(BOARD_JC2432W328C)
+    #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
+#else
+    #define USE_DMA_ADC         1     // Enabled for best RSSI performance
+#endif
+
 #define DMA_SAMPLE_RATE     20000 // DMA ADC sample rate in Hz (20000 = 20kHz minimum for ESP32)
                                   // ESP32 valid range: 20kHz - 2MHz
                                   // Lower rate = less CPU overhead
