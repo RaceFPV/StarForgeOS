@@ -47,6 +47,12 @@ private:
     float readBatteryVoltage();
     uint8_t calculateBatteryPercentage(float voltage);
 #endif
+
+#if ENABLE_AUDIO
+    void playLapBeep();
+    void speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs);
+    void initAudio();
+#endif
 #endif
 
 

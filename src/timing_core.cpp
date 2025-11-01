@@ -1288,6 +1288,8 @@ void TimingCore::setupADC_DMA() {
   adc_channel_t adc_channel;
   #if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     adc_channel = ADC_CHANNEL_3;     // GPIO3 = ADC1_CH3 on ESP32-C3
+  #elif defined(BOARD_JC2432W328C)
+    adc_channel = ADC_CHANNEL_7;     // GPIO35 = ADC1_CH7 on JC2432W328C
   #else
     // ESP32-WROOM uses GPIO34 = ADC1_CH6
     adc_channel = ADC_CHANNEL_6;     // GPIO34 = ADC1_CH6 on ESP32

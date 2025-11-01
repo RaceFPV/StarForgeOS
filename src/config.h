@@ -19,7 +19,7 @@
     #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
     #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
     #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch
-    #define BATTERY_ADC_PIN     4     // GPIO4 (ADC2_CH0) - Battery voltage monitoring via external voltage divider
+    // BATTERY_ADC_PIN is defined later in the LCD UI section (GPIO34, repurposed from light sensor)
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
@@ -90,16 +90,24 @@
     #define LCD_TOUCH_INT   21    // Touch interrupt pin
     #define LCD_BACKLIGHT   27    // Backlight control pin
     
-    // Battery monitoring configuration (requires custom PCB with voltage divider)
-    // IO4 (ADC2_CH0) will be used with an external 2:1 voltage divider circuit
-    // Note: ADC2 doesn't work during active WiFi TX, but works during RX/idle
-    // Circuit: Battery+ -> 100kΩ -> IO4 -> 100kΩ -> GND (optional: 100nF cap to GND)
-    // This is DISABLED by default (set to 1 when custom PCB with divider is connected)
-    #define ENABLE_BATTERY_MONITOR  1     // Enable when custom PCB with voltage divider is ready
-    #define BATTERY_VOLTAGE_DIVIDER 2.0   // Voltage divider ratio (2:1 with equal resistors)
-    #define BATTERY_MIN_VOLTAGE     3.0   // Minimum battery voltage (empty) - 3.0V LiPo
-    #define BATTERY_MAX_VOLTAGE     4.2   // Maximum battery voltage (full) - 4.2V LiPo
-    #define BATTERY_SAMPLES         10    // Number of samples to average for stability
+    // Audio configuration (built-in DAC amplifier on JC2432W328C)
+    // NOTE: TTS libraries conflict with ADC driver (both legacy and driver_ng)
+    // Pre-recorded audio would work, but simple beeps are sufficient
+    #define ENABLE_AUDIO    1     // Enable audio beeps for lap detection
+    #define AUDIO_DAC_PIN   26    // GPIO26 (DAC channel) - connected to built-in amplifier
+    #define BEEP_DURATION_MS 100  // Beep duration in milliseconds
+    
+    // Battery monitoring configuration for 1S LiPo (3.0V - 4.2V)
+    // Uses GPIO34 (ADC1_CH6) - originally used for light sensor, repurposed for battery
+    // Note: GPIO34 is input-only, perfect for ADC use, works with WiFi active
+    // Circuit: Battery+ -> 100kΩ -> GPIO34 -> 100kΩ -> GND + 100nF cap to GND (recommended)
+    // With 2:1 divider: 4.2V battery -> 2.1V at ADC (safe for ESP32's 3.3V max)
+    #define ENABLE_BATTERY_MONITOR  1     // Enabled for 1S LiPo with voltage divider
+    #define BATTERY_ADC_PIN         34    // GPIO34 (ADC1_CH6) - light sensor pin (repurposed)
+    #define BATTERY_VOLTAGE_DIVIDER 2.0   // 2:1 voltage divider (100kΩ + 100kΩ resistors)
+    #define BATTERY_MIN_VOLTAGE     3.0   // 1S LiPo minimum (empty)
+    #define BATTERY_MAX_VOLTAGE     4.2   // 1S LiPo maximum (full charge)
+    #define BATTERY_SAMPLES         10    // Number of ADC samples to average for stability
 #endif
 
 // Data storage

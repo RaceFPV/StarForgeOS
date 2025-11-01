@@ -6,6 +6,13 @@
 #include <string.h>
 #include "config.h"
 
+#if ENABLE_AUDIO && defined(BOARD_JC2432W328C)
+// SimpleTTS support - includes for future implementation
+// #include "SimpleTTS.h"
+// #include "AudioTools.h"
+// TODO: Implement custom AudioOutput class for DAC26 once audio files are ready
+#endif
+
 #if ENABLE_LCD_UI
 StandaloneMode* StandaloneMode::_lcdInstance = nullptr;
 #endif
@@ -19,6 +26,20 @@ StandaloneMode::StandaloneMode() : _server(80), _timingCore(nullptr) {
 
 void StandaloneMode::begin(TimingCore* timingCore) {
     _timingCore = timingCore;
+    
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+    // Initialize ADC for battery monitoring
+    pinMode(BATTERY_ADC_PIN, INPUT);
+    
+    // Set attenuation specifically for this pin (ADC1)
+    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);  // 0-3.3V range
+    analogSetWidth(12);  // 12-bit resolution (0-4095)
+#endif
+
+#if ENABLE_AUDIO
+    // Initialize audio DAC
+    initAudio();
+#endif
     
     // Initialize WiFi AP with stability improvements
     setupWiFiAP();
@@ -146,6 +167,11 @@ void StandaloneMode::process() {
         if (_lcdUI) {
             _lcdUI->updateLapCount(_laps.size());
         }
+        
+#if ENABLE_AUDIO
+        // Speak lap announcement with time
+        speakLapAnnouncement(_laps.size(), lap.timestamp_ms);
+#endif
 #endif
     }
     
@@ -1439,16 +1465,15 @@ void StandaloneMode::webServerTask(void* parameter) {
 #if ENABLE_LCD_UI
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
-// Battery voltage monitoring (requires custom PCB with voltage divider on IO4)
+// Battery voltage monitoring with voltage divider on ADC1 pin
 float StandaloneMode::readBatteryVoltage() {
     // Read ADC value (averaging for stability)
-    // Note: ADC2 (IO4) doesn't work during active WiFi TX, but works during idle/RX
     uint32_t adc_sum = 0;
     uint8_t successful_reads = 0;
     
     for (int i = 0; i < BATTERY_SAMPLES; i++) {
         int adc_value = analogRead(BATTERY_ADC_PIN);
-        if (adc_value >= 0) {  // ADC2 returns -1 if WiFi is transmitting
+        if (adc_value >= 0) {  // Valid ADC reading
             adc_sum += adc_value;
             successful_reads++;
         }
@@ -1456,9 +1481,7 @@ float StandaloneMode::readBatteryVoltage() {
     }
     
     if (successful_reads == 0) {
-        // WiFi was busy entire time, return last known voltage or 0
-        Serial.println("[Battery] ADC2 busy (WiFi TX), skipping read");
-        return 0.0;  // Or cache last known value
+        return 0.0;  // Failed to read
     }
     
     uint16_t adc_value = adc_sum / successful_reads;
@@ -1468,14 +1491,6 @@ float StandaloneMode::readBatteryVoltage() {
     // Account for voltage divider
     float adc_voltage = (adc_value / 4095.0) * 3.3;
     float battery_voltage = adc_voltage * BATTERY_VOLTAGE_DIVIDER;
-    
-    // Debug output every 10 calls to reduce spam
-    static uint8_t debug_counter = 0;
-    if (debug_counter++ % 10 == 0) {
-        Serial.printf("[Battery] ADC raw: %d (%d/%d reads), ADC voltage: %.2fV, Battery: %.2fV, %%: %d\n", 
-                      adc_value, successful_reads, BATTERY_SAMPLES, adc_voltage, battery_voltage,
-                      calculateBatteryPercentage(battery_voltage));
-    }
     
     return battery_voltage;
 }
@@ -1488,6 +1503,46 @@ uint8_t StandaloneMode::calculateBatteryPercentage(float voltage) {
     
     float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
     return (uint8_t)percentage;
+}
+#endif
+
+#if ENABLE_AUDIO
+// Initialize audio DAC
+void StandaloneMode::initAudio() {
+    // Set up GPIO26 as DAC output
+    pinMode(AUDIO_DAC_PIN, OUTPUT);
+    dacWrite(AUDIO_DAC_PIN, 0);  // Start silent
+}
+
+// Play a simple beep for lap detection
+void StandaloneMode::playLapBeep() {
+    // Generate a 1kHz tone for BEEP_DURATION_MS
+    const int frequency = 1000;  // 1kHz
+    const int samples = (frequency * BEEP_DURATION_MS) / 1000;
+    const float period = 1000000.0 / frequency;  // Period in microseconds
+    
+    unsigned long start = micros();
+    for (int i = 0; i < samples; i++) {
+        // Generate square wave (simple but effective)
+        int phase = (int)((micros() - start) / (period / 2)) % 2;
+        dacWrite(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255, keep volume moderate
+        delayMicroseconds(period / 2);
+    }
+    
+    dacWrite(AUDIO_DAC_PIN, 0);  // Silence
+}
+
+// Speak lap announcement using word fragment TTS
+void StandaloneMode::speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs) {
+    #if defined(BOARD_JC2432W328C)
+    // TODO: Implement SimpleTTS with pre-recorded word fragments
+    // For now, use simple beep until audio files are generated
+    // Audio files needed: "lap", "1"-"20", "0"-"59", "seconds", "minutes"
+    playLapBeep();
+    #else
+    // Fallback to beep for boards without TTS
+    playLapBeep();
+    #endif
 }
 #endif
 

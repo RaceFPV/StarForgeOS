@@ -12,11 +12,13 @@ lv_disp_drv_t LcdUI::disp_drv;
 lv_indev_drv_t LcdUI::indev_drv;
 
 LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
-                 rssi_label(nullptr), lap_count_label(nullptr), status_label(nullptr),
+                 rssi_label(nullptr), rssi_chart(nullptr), rssi_series(nullptr),
+                 lap_count_label(nullptr), status_label(nullptr),
                  battery_label(nullptr), battery_icon(nullptr),
                  start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr),
                  band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
-                 _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr) {
+                 _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
+                 _lastGraphUpdate(0) {
     _instance = this;
 }
 
@@ -126,26 +128,52 @@ void LcdUI::createUI() {
     lv_obj_set_style_text_color(rssi_label, lv_color_hex(0x00ff00), 0);
     lv_obj_set_style_bg_opa(rssi_label, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(rssi_label, 0, 0);
-    lv_obj_set_pos(rssi_label, 85, 35);
+    lv_obj_set_pos(rssi_label, 10, 30);  // Left side
+    
+    // RSSI Graph (right side)
+    rssi_chart = lv_chart_create(rssi_box);
+    lv_obj_set_size(rssi_chart, 140, 50);
+    lv_obj_set_pos(rssi_chart, 75, 15);
+    lv_chart_set_type(rssi_chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_range(rssi_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 255);
+    lv_chart_set_point_count(rssi_chart, 30);  // 30 points of history
+    lv_chart_set_div_line_count(rssi_chart, 0, 0);  // No grid lines
+    lv_obj_set_style_size(rssi_chart, 0, LV_PART_INDICATOR);  // No points
+    lv_obj_set_style_bg_color(rssi_chart, lv_color_hex(0x0a0a0a), 0);
+    lv_obj_set_style_border_width(rssi_chart, 1, 0);
+    lv_obj_set_style_border_color(rssi_chart, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(rssi_chart, 2, 0);
+    
+    // Add RSSI data series
+    rssi_series = lv_chart_add_series(rssi_chart, lv_color_hex(0x00ff00), LV_CHART_AXIS_PRIMARY_Y);
+    lv_obj_set_style_line_width(rssi_chart, 2, LV_PART_ITEMS);
+    
+    // Initialize with zeros
+    for (int i = 0; i < 30; i++) {
+        rssi_series->y_points[i] = 0;
+    }
+    lv_chart_refresh(rssi_chart);
     
 #if ENABLE_BATTERY_MONITOR
-    // Battery indicator (top-right of RSSI box) - only if custom PCB has voltage divider
-    battery_label = lv_label_create(rssi_box);
-    lv_label_set_text(battery_label, "---");  // Unknown initially (will update when divider connected)
-    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(battery_label, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_bg_opa(battery_label, LV_OPA_TRANSP, 0);
-    lv_obj_set_pos(battery_label, 170, 8);
-    
-    // Simple battery icon (rectangle with fill level)
+    // Compact battery indicator (top-right corner, single line with icon + percentage)
+    // Battery icon (small rectangle)
     battery_icon = lv_obj_create(rssi_box);
-    lv_obj_set_size(battery_icon, 30, 15);
-    lv_obj_set_pos(battery_icon, 175, 28);
+    lv_obj_set_size(battery_icon, 20, 12);
+    lv_obj_set_pos(battery_icon, 145, 1);
     lv_obj_set_style_bg_color(battery_icon, lv_color_hex(0x888888), 0);
     lv_obj_set_style_border_width(battery_icon, 1, 0);
     lv_obj_set_style_border_color(battery_icon, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_radius(battery_icon, 2, 0);
+    lv_obj_set_style_pad_all(battery_icon, 1, 0);
     lv_obj_clear_flag(battery_icon, LV_OBJ_FLAG_SCROLLABLE);
+    
+    // Battery percentage text (right next to icon, with gap for spacing)
+    battery_label = lv_label_create(rssi_box);
+    lv_label_set_text(battery_label, "---");  // Unknown initially
+    lv_obj_set_style_text_font(battery_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(battery_label, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_bg_opa(battery_label, LV_OPA_TRANSP, 0);
+    lv_obj_set_pos(battery_label, 182, 1);  // 145 + 20 (icon width) + 7 (spacing gap)
 #endif
     
     // === LAP COUNT (Below RSSI) ===
@@ -384,10 +412,21 @@ void LcdUI::createUI() {
 
 // Update functions (called from standalone mode)
 void LcdUI::updateRSSI(uint8_t rssi) {
+    // Always update the numeric label (instant feedback)
     if (rssi_label) {
         char buf[8];
         snprintf(buf, sizeof(buf), "%d", rssi);
         lv_label_set_text(rssi_label, buf);
+    }
+    
+    // Update graph at a slower rate (every 150ms) for readability
+    if (rssi_chart && rssi_series) {
+        unsigned long now = millis();
+        if (now - _lastGraphUpdate >= GRAPH_UPDATE_INTERVAL) {
+            lv_chart_set_next_value(rssi_chart, rssi_series, rssi);
+            lv_chart_refresh(rssi_chart);
+            _lastGraphUpdate = now;
+        }
     }
 }
 

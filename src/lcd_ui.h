@@ -49,6 +49,8 @@ private:
     
     // LVGL objects
     lv_obj_t* rssi_label;
+    lv_obj_t* rssi_chart;  // RSSI history graph
+    lv_chart_series_t* rssi_series;  // RSSI data series
     lv_obj_t* lap_count_label;
     lv_obj_t* status_label;  // Shows "READY", "RACING", "STOPPED"
     lv_obj_t* battery_label;  // Shows battery percentage
@@ -67,6 +69,10 @@ private:
     void (*_startCallback)();
     void (*_stopCallback)();
     void (*_clearCallback)();
+    
+    // RSSI graph rate limiting
+    unsigned long _lastGraphUpdate;
+    static const unsigned long GRAPH_UPDATE_INTERVAL = 150;  // Update graph every 150ms
     
     // LVGL display buffer
     static lv_disp_draw_buf_t draw_buf;
