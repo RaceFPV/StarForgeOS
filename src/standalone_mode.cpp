@@ -125,7 +125,6 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 }
 
 void StandaloneMode::process() {
-    // Web server now runs in dedicated task - no need to handle here
     // mDNS handles requests automatically in background
     
     // Check for new lap data - only record during active race

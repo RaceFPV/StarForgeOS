@@ -13,14 +13,14 @@
 #elif defined(BOARD_JC2432W328C)
     // JC2432W328C - ESP32-D0WD-V3 with ST7789 LCD (240x320) and CST820 touch
     // This board has a unique pin layout for the integrated display
-    // Available broken-out GPIOs: 35, 22, 21, 16, 4, 17 (27 NOT available)
+    // Available broken-out GPIOs: 35, 22, 21, 16, 4, 17
     #define RSSI_INPUT_PIN      35    // GPIO35 (ADC1_CH7) - RSSI input from RX5808 (input only, perfect for ADC)
     #define RX5808_DATA_PIN     21    // GPIO21 - DATA to RX5808 (repurposed from touch interrupt)
     #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
     #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
     #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch
     #define BATTERY_ADC_PIN     4     // GPIO4 (ADC2_CH0) - Battery voltage monitoring via external voltage divider
-    #define UART_BAUD_RATE      115200  // UART bridge baud rate
+    #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
     // Pin mapping compatible with standard ESP32 dev boards
@@ -60,10 +60,11 @@
 
 // DMA ADC configuration
 #define USE_DMA_ADC         1     // Use DMA for ADC sampling (0 = polled, 1 = DMA)
-#define DMA_SAMPLE_RATE     1000  // DMA ADC sample rate in Hz (1000 = 1kHz, 5000 = 5kHz, 10000 = 10kHz)
-                                  // Lower rate = less variability, more stable readings
+#define DMA_SAMPLE_RATE     20000 // DMA ADC sample rate in Hz (20000 = 20kHz minimum for ESP32)
+                                  // ESP32 valid range: 20kHz - 2MHz
+                                  // Lower rate = less CPU overhead
                                   // Higher rate = better filtering, more responsive
-                                  // Recommended: 1000-5000 Hz for lap timing
+                                  // Recommended: 20000-100000 Hz for lap timing
 #define DMA_BUFFER_SIZE     256   // DMA buffer size in samples (larger = more averaging)
 
 
@@ -106,7 +107,7 @@
 #define MAX_PILOTS          2     // Maximum pilots in standalone mode
 
 // Debug settings
-#define DEBUG_SERIAL        1     // Enable debug output
+#define DEBUG_SERIAL        0     // Enable debug output
 #define DEBUG_TIMING        0     // Enable timing debug output
 
 #if DEBUG_SERIAL

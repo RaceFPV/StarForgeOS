@@ -1,0 +1,23 @@
+# ESP-IDF Configuration to silence boot messages
+# This file configures the ESP-IDF build system
+
+# Disable all logging at bootloader level
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+CONFIG_BOOTLOADER_LOG_LEVEL=0
+
+# Disable all logging at application level
+CONFIG_LOG_DEFAULT_LEVEL_NONE=y
+CONFIG_LOG_DEFAULT_LEVEL=0
+CONFIG_LOG_MAXIMUM_LEVEL=0
+
+# Disable PSRAM support (board doesn't have PSRAM)
+CONFIG_ESP32_SPIRAM_SUPPORT=n
+CONFIG_SPIRAM_SUPPORT=n
+
+# Disable core dump completely
+CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y
+CONFIG_ESP_COREDUMP_ENABLE=n
+
+# Disable other verbose output
+CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT=y
+
