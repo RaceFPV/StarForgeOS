@@ -124,6 +124,44 @@ struct Message {
         }
     }
     
+    bool isValidCommand() {
+        // Validate command is in the valid RotorHazard protocol range
+        // This prevents responding to garbage data (e.g., wrong baud rate)
+        switch (command) {
+            // Valid READ commands
+            case READ_ADDRESS:
+            case READ_FREQUENCY:
+            case READ_LAP_STATS:
+            case READ_LAP_PASS_STATS:
+            case READ_LAP_EXTREMUMS:
+            case READ_RHFEAT_FLAGS:
+            case READ_REVISION_CODE:
+            case READ_NODE_RSSI_PEAK:
+            case READ_NODE_RSSI_NADIR:
+            case READ_ENTER_AT_LEVEL:
+            case READ_EXIT_AT_LEVEL:
+            case READ_TIME_MILLIS:
+            case READ_MULTINODE_COUNT:
+            case READ_CURNODE_INDEX:
+            case READ_NODE_SLOTIDX:
+            case READ_FW_VERSION:
+            case READ_FW_BUILDDATE:
+            case READ_FW_BUILDTIME:
+            case READ_FW_PROCTYPE:
+            // Valid WRITE commands
+            case WRITE_FREQUENCY:
+            case WRITE_ENTER_AT_LEVEL:
+            case WRITE_EXIT_AT_LEVEL:
+            case SEND_STATUS_MESSAGE:
+            case FORCE_END_CROSSING:
+            case WRITE_CURNODE_INDEX:
+            case JUMP_TO_BOOTLOADER:
+                return true;
+            default:
+                return false;  // Invalid/unknown command - ignore it
+        }
+    }
+    
     void handleWriteCommand(bool serialFlag);
     void handleReadCommand(bool serialFlag);
 };
@@ -160,12 +198,6 @@ void NodeMode::begin(TimingCore* timingCore) {
     if (_timingCore) {
         _timingCore->setActivated(true);
     }
-    
-    // Debug output disabled to avoid interfering with serial protocol
-    // Serial.println("RotorHazard Node Mode initialized");
-    // Serial.printf("Firmware: %s\n", firmwareVersionString);
-    // Serial.printf("Build: %s %s\n", firmwareBuildDateString, firmwareBuildTimeString);
-    // Serial.printf("Processor: %s\n", firmwareProcTypeString);
 }
 
 void NodeMode::process() {
@@ -179,10 +211,6 @@ void NodeMode::process() {
         _lastPass.timestamp = lap.timestamp_ms;
         _lastPass.rssiPeak = lap.rssi_peak;
         _lastPass.lap++;  // Increment lap counter
-        
-        // Debug output disabled to avoid interfering with serial protocol
-        // Serial.printf("Lap %d detected: %dms, RSSI: %d\n", 
-        //              _lastPass.lap, lap.timestamp_ms, lap.rssi_peak);
     }
 }
 
@@ -195,6 +223,14 @@ void NodeMode::handleSerialInput() {
         if (serialMessage.buffer.size == 0) {
             // New command
             serialMessage.command = nextByte;
+            
+            // Validate command before processing
+            if (!serialMessage.isValidCommand()) {
+                // Invalid command (likely baud rate mismatch) - ignore silently
+                serialMessage.command = 0;
+                continue;
+            }
+            
             if (serialMessage.command > 0x50) {
                 // Write command
                 byte expectedSize = serialMessage.getPayloadSize();
@@ -221,9 +257,6 @@ void NodeMode::handleSerialInput() {
                 uint8_t checksum = serialMessage.buffer.calculateChecksum(serialMessage.buffer.size - 1);
                 if (serialMessage.buffer.data[serialMessage.buffer.size - 1] == checksum) {
                     serialMessage.handleWriteCommand(true);
-                } else {
-                    // Debug output disabled to avoid interfering with serial protocol
-                // Serial.println("Checksum error");
                 }
                 serialMessage.buffer.size = 0;
             }
@@ -250,7 +283,7 @@ void Message::handleWriteCommand(bool serialFlag) {
                 nodeMode->_settings.vtxFreq = freq;  // Update stored settings
                 nodeMode->_timingCore->setFrequency(freq);
                 nodeMode->_timingCore->setActivated(true);  // Activate node after frequency is set
-                // Reset peak tracking when frequency changes (same as RotorHazard)
+                // Reset peak tracking when frequency changes
                 TimingState state = nodeMode->_timingCore->getState();
                 state.peak_rssi = 0;
             }
@@ -281,21 +314,15 @@ void Message::handleWriteCommand(bool serialFlag) {
         }
         
         case FORCE_END_CROSSING: {
-            // Debug output disabled to avoid interfering with serial protocol
-            // Serial.println("Force end crossing");
             break;
         }
         
         case SEND_STATUS_MESSAGE: {
             uint16_t msg = buffer.read16();
-            // Debug output disabled to avoid interfering with serial protocol
-            // Serial.printf("Status message: 0x%04X\n", msg);
             break;
         }
         
         default:
-            // Debug output disabled to avoid interfering with serial protocol
-            // Serial.printf("Unknown write command: 0x%02X\n", command);
             actFlag = false;
     }
     
@@ -440,6 +467,8 @@ void Message::handleReadCommand(bool serialFlag) {
             break;
             
         case READ_REVISION_CODE:
+            // Return 0x25 (verification) + API level (35)
+            // This is the critical first response that identifies the node
             buffer.write16((0x25 << 8) + NODE_API_LEVEL);
             break;
             
@@ -472,52 +501,46 @@ void Message::handleReadCommand(bool serialFlag) {
             break;
             
         case READ_FW_VERSION:
-            // Write firmware version string
+            // Write firmware version string (fixed 16-byte block, null-padded)
             {
-                const char* version = "ESP32_Lite_1.0.0";
-                uint8_t len = strlen(version);
-                buffer.write8(len);
-                for (int i = 0; i < len; i++) {
-                    buffer.write8(version[i]);
+                const char* version = "ESP32_1.0.0";
+                for (int i = 0; i < 16; i++) {
+                    buffer.write8(i < strlen(version) ? version[i] : 0);
                 }
             }
             break;
             
         case READ_FW_BUILDDATE:
+            // Write build date (fixed 16-byte block, null-padded)
             {
                 const char* date = __DATE__;
-                uint8_t len = strlen(date);
-                buffer.write8(len);
-                for (int i = 0; i < len; i++) {
-                    buffer.write8(date[i]);
+                for (int i = 0; i < 16; i++) {
+                    buffer.write8(i < strlen(date) ? date[i] : 0);
                 }
             }
             break;
             
         case READ_FW_BUILDTIME:
+            // Write build time (fixed 16-byte block, null-padded)
             {
                 const char* time = __TIME__;
-                uint8_t len = strlen(time);
-                buffer.write8(len);
-                for (int i = 0; i < len; i++) {
-                    buffer.write8(time[i]);
+                for (int i = 0; i < 16; i++) {
+                    buffer.write8(i < strlen(time) ? time[i] : 0);
                 }
             }
             break;
             
         case READ_FW_PROCTYPE:
+            // Write processor type (fixed 16-byte block, null-padded)
             {
-                const char* proctype = "ESP32-C3";
-                uint8_t len = strlen(proctype);
-                buffer.write8(len);
-                for (int i = 0; i < len; i++) {
-                    buffer.write8(proctype[i]);
+                const char* proctype = "ESP32";
+                for (int i = 0; i < 16; i++) {
+                    buffer.write8(i < strlen(proctype) ? proctype[i] : 0);
                 }
             }
             break;
             
         default:
-            // Debug output temporarily enabled to troubleshoot communication
             actFlag = false;
     }
     
@@ -534,5 +557,3 @@ void Message::handleReadCommand(bool serialFlag) {
     
     command = 0;  // Clear command
 }
-
-// Firmware version strings are defined in main.cpp

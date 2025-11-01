@@ -9,6 +9,10 @@
 #include "timing_core.h" // To interact with timing data
 #include "config.h"
 
+#if ENABLE_LCD_UI
+#include "lcd_ui.h"
+#endif
+
 class StandaloneMode {
 public:
     StandaloneMode();
@@ -26,6 +30,30 @@ private:
     TaskHandle_t _webTaskHandle;
     static void webServerTask(void* parameter);
     String _apSSID;
+
+#if ENABLE_LCD_UI
+    // LCD UI
+    LcdUI* _lcdUI;
+    TaskHandle_t _lcdTaskHandle;
+    
+    // LCD button callbacks (called from LCD task, must be thread-safe)
+    static void lcdStartCallback();
+    static void lcdStopCallback();
+    static void lcdClearCallback();
+    static StandaloneMode* _lcdInstance;  // For static callbacks
+    
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+    // Battery voltage monitoring (requires custom PCB with voltage divider)
+    float readBatteryVoltage();
+    uint8_t calculateBatteryPercentage(float voltage);
+#endif
+
+#if ENABLE_AUDIO
+    void playLapBeep();
+    void speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs);
+    void initAudio();
+#endif
+#endif
 
 
     void handleRoot();

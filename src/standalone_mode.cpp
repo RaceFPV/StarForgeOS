@@ -6,11 +6,40 @@
 #include <string.h>
 #include "config.h"
 
+#if ENABLE_AUDIO && defined(BOARD_JC2432W328C)
+// SimpleTTS support - includes for future implementation
+// #include "SimpleTTS.h"
+// #include "AudioTools.h"
+// TODO: Implement custom AudioOutput class for DAC26 once audio files are ready
+#endif
+
+#if ENABLE_LCD_UI
+StandaloneMode* StandaloneMode::_lcdInstance = nullptr;
+#endif
+
 StandaloneMode::StandaloneMode() : _server(80), _timingCore(nullptr) {
+#if ENABLE_LCD_UI
+    _lcdUI = nullptr;
+    _lcdInstance = this;
+#endif
 }
 
 void StandaloneMode::begin(TimingCore* timingCore) {
     _timingCore = timingCore;
+    
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+    // Initialize ADC for battery monitoring
+    pinMode(BATTERY_ADC_PIN, INPUT);
+    
+    // Set attenuation specifically for this pin (ADC1)
+    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);  // 0-3.3V range
+    analogSetWidth(12);  // 12-bit resolution (0-4095)
+#endif
+
+#if ENABLE_AUDIO
+    // Initialize audio DAC
+    initAudio();
+#endif
     
     // Initialize WiFi AP with stability improvements
     setupWiFiAP();
@@ -59,13 +88,64 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     Serial.println("Open browser to http://192.168.4.1 or http://sfos.local");
     
     // Create dedicated web server task
+    // ESP32 dual-core: Pin to Core 0 (same as WiFi stack)
+    // ESP32-C3 (single core): No core pinning
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);
     Serial.println("Web server task created");
+#else
+    xTaskCreatePinnedToCore(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle, 0);
+    Serial.println("Web server task created on Core 0");
+#endif
+    
+#if ENABLE_LCD_UI
+    // IMPORTANT: Give WiFi more time to fully stabilize before initializing LCD
+    // LCD initialization uses I2C which can cause issues if WiFi isn't fully ready
+    delay(500);
+    
+    // Initialize LCD UI (optional feature)
+    Serial.println("\n====================================");
+    Serial.println("Initializing LCD UI (optional)");
+    Serial.println("====================================");
+    
+    _lcdUI = new LcdUI();
+    if (_lcdUI && _lcdUI->begin()) {
+        // Set button callbacks
+        _lcdUI->setStartCallback(lcdStartCallback);
+        _lcdUI->setStopCallback(lcdStopCallback);
+        _lcdUI->setClearCallback(lcdClearCallback);
+        _lcdUI->setTimingCore(_timingCore);  // Link timing core for settings access
+        
+        // Initialize settings display
+        uint8_t band, channel;
+        _timingCore->getRX5808Settings(band, channel);
+        _lcdUI->updateBandChannel(band, channel);
+        _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
+        _lcdUI->updateThreshold(_timingCore->getThreshold());
+        
+        // Create LCD UI task
+        // ESP32 dual-core: Pin to Core 0 (with WiFi/web, low priority)
+        // ESP32-C3 (single core): No core pinning
+#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+        xTaskCreate(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
+        Serial.println("LCD UI task created");
+#else
+        xTaskCreatePinnedToCore(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle, 0);
+        Serial.println("LCD UI task created on Core 0");
+#endif
+    } else {
+        Serial.println("Warning: LCD UI initialization failed (optional feature)");
+        if (_lcdUI) {
+            delete _lcdUI;
+            _lcdUI = nullptr;
+        }
+    }
+#endif
+    
     Serial.println("Setup complete!");
 }
 
 void StandaloneMode::process() {
-    // Web server now runs in dedicated task - no need to handle here
     // mDNS handles requests automatically in background
     
     // Check for new lap data - only record during active race
@@ -81,7 +161,48 @@ void StandaloneMode::process() {
         }
         
         Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
+        
+#if ENABLE_LCD_UI
+        // Update LCD lap count
+        if (_lcdUI) {
+            _lcdUI->updateLapCount(_laps.size());
+        }
+        
+#if ENABLE_AUDIO
+        // Speak lap announcement with time
+        speakLapAnnouncement(_laps.size(), lap.timestamp_ms);
+#endif
+#endif
     }
+    
+#if ENABLE_LCD_UI
+    // Update LCD RSSI (every loop iteration for real-time display)
+    if (_lcdUI && _timingCore) {
+        _lcdUI->updateRSSI(_timingCore->getCurrentRSSI());
+        
+        // Update settings display periodically (every 100ms is enough)
+        static unsigned long last_settings_update = 0;
+        if (millis() - last_settings_update > 100) {
+            uint8_t band, channel;
+            _timingCore->getRX5808Settings(band, channel);
+            _lcdUI->updateBandChannel(band, channel);
+            _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
+            _lcdUI->updateThreshold(_timingCore->getThreshold());
+            last_settings_update = millis();
+        }
+        
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+        // Update battery status every 5 seconds
+        static unsigned long last_battery_update = 0;
+        if (millis() - last_battery_update > 5000) {
+            float voltage = readBatteryVoltage();
+            uint8_t percentage = calculateBatteryPercentage(voltage);
+            _lcdUI->updateBattery(voltage, percentage);
+            last_battery_update = millis();
+        }
+#endif
+    }
+#endif
 }
 
 void StandaloneMode::setupWiFiAP() {
@@ -200,6 +321,13 @@ void StandaloneMode::handleStartRace() {
     _raceStartTime = millis();
     _laps.clear();
     
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateRaceStatus(true);
+        _lcdUI->updateLapCount(0);
+    }
+#endif
+    
     Serial.println("Race started!");
     _server.send(200, "application/json", "{\"status\":\"race_started\"}");
 }
@@ -207,12 +335,24 @@ void StandaloneMode::handleStartRace() {
 void StandaloneMode::handleStopRace() {
     _raceActive = false;
     
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateRaceStatus(false);
+    }
+#endif
+    
     Serial.println("Race stopped!");
     _server.send(200, "application/json", "{\"status\":\"race_stopped\"}");
 }
 
 void StandaloneMode::handleClearLaps() {
     _laps.clear();
+    
+#if ENABLE_LCD_UI
+    if (_lcdUI) {
+        _lcdUI->updateLapCount(0);
+    }
+#endif
     
     Serial.println("Laps cleared!");
     _server.send(200, "application/json", "{\"status\":\"laps_cleared\"}");
@@ -1322,3 +1462,127 @@ void StandaloneMode::webServerTask(void* parameter) {
     }
 }
 
+#if ENABLE_LCD_UI
+
+#if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
+// Battery voltage monitoring with voltage divider on ADC1 pin
+float StandaloneMode::readBatteryVoltage() {
+    // Read ADC value (averaging for stability)
+    uint32_t adc_sum = 0;
+    uint8_t successful_reads = 0;
+    
+    for (int i = 0; i < BATTERY_SAMPLES; i++) {
+        int adc_value = analogRead(BATTERY_ADC_PIN);
+        if (adc_value >= 0) {  // Valid ADC reading
+            adc_sum += adc_value;
+            successful_reads++;
+        }
+        delay(1);
+    }
+    
+    if (successful_reads == 0) {
+        return 0.0;  // Failed to read
+    }
+    
+    uint16_t adc_value = adc_sum / successful_reads;
+    
+    // Convert ADC reading to voltage
+    // ESP32 ADC: 0-4095 = 0-3.3V (but typically use 0-2.45V for accuracy)
+    // Account for voltage divider
+    float adc_voltage = (adc_value / 4095.0) * 3.3;
+    float battery_voltage = adc_voltage * BATTERY_VOLTAGE_DIVIDER;
+    
+    return battery_voltage;
+}
+
+uint8_t StandaloneMode::calculateBatteryPercentage(float voltage) {
+    // Simple linear mapping (good enough for most LiPo cells)
+    // For better accuracy, use a LiPo discharge curve lookup table
+    if (voltage >= BATTERY_MAX_VOLTAGE) return 100;
+    if (voltage <= BATTERY_MIN_VOLTAGE) return 0;
+    
+    float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
+    return (uint8_t)percentage;
+}
+#endif
+
+#if ENABLE_AUDIO
+// Initialize audio DAC
+void StandaloneMode::initAudio() {
+    // Set up GPIO26 as DAC output
+    pinMode(AUDIO_DAC_PIN, OUTPUT);
+    dacWrite(AUDIO_DAC_PIN, 0);  // Start silent
+}
+
+// Play a simple beep for lap detection
+void StandaloneMode::playLapBeep() {
+    // Generate a 1kHz tone for BEEP_DURATION_MS
+    const int frequency = 1000;  // 1kHz
+    const int samples = (frequency * BEEP_DURATION_MS) / 1000;
+    const float period = 1000000.0 / frequency;  // Period in microseconds
+    
+    unsigned long start = micros();
+    for (int i = 0; i < samples; i++) {
+        // Generate square wave (simple but effective)
+        int phase = (int)((micros() - start) / (period / 2)) % 2;
+        dacWrite(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255, keep volume moderate
+        delayMicroseconds(period / 2);
+    }
+    
+    dacWrite(AUDIO_DAC_PIN, 0);  // Silence
+}
+
+// Speak lap announcement using word fragment TTS
+void StandaloneMode::speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs) {
+    #if defined(BOARD_JC2432W328C)
+    // TODO: Implement SimpleTTS with pre-recorded word fragments
+    // For now, use simple beep until audio files are generated
+    // Audio files needed: "lap", "1"-"20", "0"-"59", "seconds", "minutes"
+    playLapBeep();
+    #else
+    // Fallback to beep for boards without TTS
+    playLapBeep();
+    #endif
+}
+#endif
+
+// LCD button callbacks (static, called from LCD UI task)
+void StandaloneMode::lcdStartCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_raceActive = true;
+        _lcdInstance->_raceStartTime = millis();
+        _lcdInstance->_laps.clear();
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateRaceStatus(true);
+            _lcdInstance->_lcdUI->updateLapCount(0);
+        }
+        
+        Serial.println("[LCD] Race started!");
+    }
+}
+
+void StandaloneMode::lcdStopCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_raceActive = false;
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateRaceStatus(false);
+        }
+        
+        Serial.println("[LCD] Race stopped!");
+    }
+}
+
+void StandaloneMode::lcdClearCallback() {
+    if (_lcdInstance) {
+        _lcdInstance->_laps.clear();
+        
+        if (_lcdInstance->_lcdUI) {
+            _lcdInstance->_lcdUI->updateLapCount(0);
+        }
+        
+        Serial.println("[LCD] Laps cleared!");
+    }
+}
+#endif
