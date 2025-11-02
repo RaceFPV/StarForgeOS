@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StarForge Flash Tool</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Courier New', 'Courier', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+      background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
+      background-attachment: fixed;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: 
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(255, 255, 255, 0.02) 2px,
+          rgba(255, 255, 255, 0.02) 4px
+        );
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .container {
+      background: linear-gradient(145deg, #1a1f35 0%, #141824 100%);
+      border: 2px solid #2a3550;
+      border-radius: 12px;
+      box-shadow: 
+        0 0 30px rgba(255, 123, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 20px 60px rgba(0, 0, 0, 0.5);
+      max-width: 700px;
+      width: 100%;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      z-index: 2;
+      overflow: hidden;
+    }
+
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: 
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 100px,
+          rgba(255, 123, 0, 0.03) 100px,
+          rgba(255, 123, 0, 0.03) 101px
+        ),
+        repeating-linear-gradient(
+          180deg,
+          transparent,
+          transparent 100px,
+          rgba(255, 123, 0, 0.03) 100px,
+          rgba(255, 123, 0, 0.03) 101px
+        );
+      pointer-events: none;
+      border-radius: 12px;
+    }
+
+    .header {
+      background: linear-gradient(145deg, #2d3548 0%, #1f2535 100%);
+      color: #ff7b00;
+      padding: 25px 30px;
+      text-align: center;
+      border-bottom: 2px solid #ff7b00;
+      box-shadow: 
+        0 2px 10px rgba(255, 123, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, 
+        transparent 0%, 
+        #ff7b00 20%, 
+        #ffaa00 50%, 
+        #ff7b00 80%, 
+        transparent 100%
+      );
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 5px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-shadow: 
+        0 0 10px rgba(255, 123, 0, 0.5),
+        0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .header p {
+      color: #8b9dc3;
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .content {
+      padding: 30px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex: 1;
+    }
+
+    .content::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .content::-webkit-scrollbar-track {
+      background: #1a1f35;
+      border-radius: 5px;
+    }
+
+    .content::-webkit-scrollbar-thumb {
+      background: #ff7b00;
+      border-radius: 5px;
+      border: 2px solid #1a1f35;
+    }
+
+    .content::-webkit-scrollbar-thumb:hover {
+      background: #ffaa00;
+    }
+
+    .form-group {
+      margin-bottom: 25px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+      color: #ff7b00;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .form-group select,
+    .form-group input {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #2a3550;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: all 0.3s;
+      background: linear-gradient(145deg, #1f2535 0%, #1a1f35 100%);
+      color: #e0e6ed;
+      font-family: 'Courier New', monospace;
+    }
+
+    .form-group select:focus,
+    .form-group input:focus {
+      outline: none;
+      border-color: #ff7b00;
+      box-shadow: 0 0 10px rgba(255, 123, 0, 0.3);
+    }
+
+    .form-group select option {
+      background: #1a1f35;
+      color: #e0e6ed;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 15px;
+      margin-top: 10px;
+    }
+
+    .radio-option {
+      flex: 1;
+      position: relative;
+    }
+
+    .radio-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+    }
+
+    .radio-option label {
+      display: block;
+      padding: 12px;
+      border: 2px solid #2a3550;
+      border-radius: 6px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-weight: 600;
+      background: linear-gradient(145deg, #1f2535 0%, #1a1f35 100%);
+      color: #8b9dc3;
+    }
+
+    .radio-option input[type="radio"]:checked + label {
+      border-color: #ff7b00;
+      background: linear-gradient(145deg, #ff7b00 0%, #cc6200 100%);
+      color: #ffffff;
+      box-shadow: 0 0 15px rgba(255, 123, 0, 0.4);
+    }
+
+    .button-group {
+      display: flex;
+      gap: 15px;
+      margin-top: 30px;
+    }
+
+    button {
+      flex: 1;
+      padding: 15px;
+      border: 2px solid transparent;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .btn-primary {
+      background: linear-gradient(145deg, #ff7b00 0%, #cc6200 100%);
+      color: white;
+      border-color: #ff9933;
+      box-shadow: 
+        0 4px 15px rgba(255, 123, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 
+        0 6px 20px rgba(255, 123, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      background: linear-gradient(145deg, #ff8c1a 0%, #e65c00 100%);
+    }
+
+    .btn-secondary {
+      background: linear-gradient(145deg, #2a3550 0%, #1f2535 100%);
+      color: #8b9dc3;
+      border-color: #3a4560;
+    }
+
+    .btn-secondary:hover {
+      background: linear-gradient(145deg, #3a4560 0%, #2a3550 100%);
+      color: #aabbdd;
+    }
+
+    .btn-danger {
+      background: linear-gradient(145deg, #ff3838 0%, #cc0000 100%);
+      color: white;
+      border-color: #ff5555;
+      box-shadow: 
+        0 4px 15px rgba(255, 56, 56, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-danger:hover {
+      background: linear-gradient(145deg, #ff5555 0%, #e60000 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255, 56, 56, 0.5);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .progress-section {
+      display: none;
+      margin-top: 25px;
+      padding: 20px;
+      background: linear-gradient(145deg, #0f1419 0%, #1a1f35 100%);
+      border: 2px solid #2a3550;
+      border-radius: 8px;
+    }
+
+    .progress-section.active {
+      display: block;
+    }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 30px;
+      background: #0f1419;
+      border: 2px solid #2a3550;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 15px;
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5);
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #ff7b00 0%, #ffaa00 50%, #ff7b00 100%);
+      background-size: 200% 100%;
+      animation: shimmer 2s linear infinite;
+      transition: width 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 12px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 0 10px rgba(255, 123, 0, 0.5);
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .console-output {
+      background: #0a0e27;
+      color: #00ff88;
+      padding: 15px;
+      border: 2px solid #2a3550;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .console-output::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .console-output::-webkit-scrollbar-track {
+      background: #0a0e27;
+    }
+
+    .console-output::-webkit-scrollbar-thumb {
+      background: #ff7b00;
+      border-radius: 4px;
+    }
+
+    .status-message {
+      margin-top: 15px;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: 500;
+      text-align: center;
+      display: none;
+    }
+
+    .status-message.active {
+      display: block;
+    }
+
+    .status-message.success {
+      background: linear-gradient(145deg, #1a3d1a 0%, #0f2a0f 100%);
+      color: #00ff88;
+      border: 2px solid #00ff88;
+      box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+    }
+
+    .status-message.error {
+      background: linear-gradient(145deg, #3d1a1a 0%, #2a0f0f 100%);
+      color: #ff5555;
+      border: 2px solid #ff5555;
+      box-shadow: 0 0 15px rgba(255, 85, 85, 0.3);
+    }
+
+    .status-message.info {
+      background: linear-gradient(145deg, #1a2a3d 0%, #0f1a2a 100%);
+      color: #55bbff;
+      border: 2px solid #55bbff;
+      box-shadow: 0 0 15px rgba(85, 187, 255, 0.3);
+    }
+
+    .file-input-group {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .file-input-group input {
+      flex: 1;
+    }
+
+    .file-input-group button {
+      flex: 0 0 auto;
+      padding: 12px 20px;
+    }
+
+    .help-text {
+      font-size: 11px;
+      color: #6b7a99;
+      margin-top: 5px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .refresh-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 15px;
+      background: linear-gradient(145deg, #2a3550 0%, #1f2535 100%);
+      color: #8b9dc3;
+      border: 2px solid #3a4560;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.3s;
+    }
+
+    .refresh-btn:hover {
+      background: linear-gradient(145deg, #3a4560 0%, #2a3550 100%);
+      color: #ff7b00;
+      border-color: #ff7b00;
+      box-shadow: 0 0 10px rgba(255, 123, 0, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>⚡ STARFORGE FLASH TOOL</h1>
+      <p>⚙ Firmware Upload System ⚙</p>
+    </div>
+
+    <div class="content">
+      <!-- Board Selection -->
+      <div class="form-group">
+        <label for="board-select">Board Type</label>
+        <select id="board-select">
+          <option value="">Select your board...</option>
+        </select>
+        <p class="help-text">Choose the ESP32 board type you're using</p>
+      </div>
+
+      <!-- Serial Port Selection -->
+      <div class="form-group">
+        <label for="port-select">Serial Port</label>
+        <select id="port-select">
+          <option value="">Select port...</option>
+        </select>
+        <div style="display: flex; gap: 10px; margin-top: 5px;">
+          <button class="refresh-btn" onclick="refreshPorts()">🔄 Refresh Ports</button>
+          <button class="refresh-btn" onclick="detectBoard()" id="detect-btn" disabled>🔍 Detect Board</button>
+        </div>
+        <p class="help-text" id="port-help">Connect your board via USB and select the port</p>
+      </div>
+
+      <!-- Firmware Source -->
+      <div class="form-group">
+        <label>Firmware Source</label>
+        <div class="radio-group">
+          <div class="radio-option">
+            <input type="radio" id="source-github" name="source" value="github" checked>
+            <label for="source-github">📦 Latest Release</label>
+          </div>
+          <div class="radio-option">
+            <input type="radio" id="source-local" name="source" value="local">
+            <label for="source-local">📁 Local Folder</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Local Folder Selection (hidden by default) -->
+      <div class="form-group" id="local-folder-group" style="display: none;">
+        <label for="folder-path">Firmware Folder</label>
+        <div class="file-input-group">
+          <input type="text" id="folder-path" readonly placeholder="No folder selected">
+          <button class="btn-secondary" onclick="selectLocalFolder()">Browse</button>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="button-group">
+        <button class="btn-primary" id="flash-btn" onclick="startFlashing()">
+          ⚡ Flash Firmware
+        </button>
+        <button class="btn-danger" id="erase-btn" onclick="eraseFlash()">
+          🗑️ Erase Flash
+        </button>
+      </div>
+
+      <!-- Progress Section -->
+      <div class="progress-section" id="progress-section">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progress-bar" style="width: 0%">0%</div>
+        </div>
+        <div class="console-output" id="console-output"></div>
+      </div>
+
+      <!-- Status Messages -->
+      <div class="status-message" id="status-message"></div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
+

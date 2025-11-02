@@ -1,0 +1,73 @@
+{
+  "name": "starforge-flash-tool",
+  "version": "1.0.0",
+  "description": "StarForge ESP32 Flash Tool - Easy firmware updates for all StarForge boards",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:all": "electron-builder --mac --win",
+    "dist": "electron-builder --mac --win --publish never",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "keywords": [
+    "ESP32",
+    "firmware",
+    "flasher",
+    "StarForge",
+    "FPV"
+  ],
+  "author": "RaceFPV",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RaceFPV/StarForgeOS.git"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "serialport": "^12.0.0",
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "io.racefpv.starforge-flash-tool",
+    "productName": "StarForge Flash Tool",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/.bin"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin/",
+        "to": "resources/bin/",
+        "filter": ["esptool-*"]
+      }
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist"
+    }
+  }
+}
+

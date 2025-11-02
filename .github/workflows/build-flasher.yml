@@ -1,0 +1,125 @@
+name: Build StarForge Flash Tool
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  release:
+    types: [ created, published ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-flasher:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: flash_tool/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: flash_tool
+      run: npm ci
+    
+    - name: Download esptool binaries
+      working-directory: flash_tool
+      shell: bash
+      run: |
+        if [ -f "download-esptool.sh" ]; then
+          chmod +x download-esptool.sh
+          ./download-esptool.sh
+        else
+          echo "esptool download script not found"
+          exit 1
+        fi
+    
+    - name: Build Electron app (macOS)
+      if: matrix.os == 'macos-latest'
+      working-directory: flash_tool
+      run: npm run build:mac
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build Electron app (Windows)
+      if: matrix.os == 'windows-latest'
+      working-directory: flash_tool
+      run: npm run build:win
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: List build outputs
+      working-directory: flash_tool
+      shell: bash
+      run: |
+        echo "=== Build artifacts ==="
+        ls -lh dist/ || dir dist
+    
+    - name: Upload macOS artifacts
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: StarForge-Flash-Tool-macOS
+        path: |
+          flash_tool/dist/*.dmg
+          flash_tool/dist/*.zip
+        retention-days: 90
+    
+    - name: Upload Windows artifacts
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: StarForge-Flash-Tool-Windows
+        path: |
+          flash_tool/dist/*.exe
+          flash_tool/dist/*.msi
+        retention-days: 90
+    
+    - name: Upload to GitHub Release (macOS)
+      if: github.event_name == 'release' && matrix.os == 'macos-latest'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          flash_tool/dist/*.dmg
+          flash_tool/dist/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload to GitHub Release (Windows)
+      if: github.event_name == 'release' && matrix.os == 'windows-latest'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          flash_tool/dist/*.exe
+          flash_tool/dist/*.msi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Summary job
+  summary:
+    needs: build-flasher
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Build Summary
+      run: |
+        echo "### Flash Tool Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Flash Tool apps built successfully" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Download installers from the Actions tab or releases page" >> $GITHUB_STEP_SUMMARY
+
