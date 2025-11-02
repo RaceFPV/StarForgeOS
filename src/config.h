@@ -18,7 +18,7 @@
     #define RX5808_DATA_PIN     21    // GPIO21 - DATA to RX5808 (repurposed from touch interrupt)
     #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
     #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
-    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection switch
+    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection (IGNORED on touch boards - use LCD button instead)
     // BATTERY_ADC_PIN is defined later in the LCD UI section (GPIO34, repurposed from light sensor)
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
 #else
@@ -33,6 +33,7 @@
 #endif
 
 // Mode selection (ESP32-C3 with pullup)
+// NOTE: On touch boards (ENABLE_LCD_UI), mode is controlled via LCD button instead of physical pin
 #define WIFI_MODE           LOW   // GND on switch pin = WiFi/Standalone mode
 #define ROTORHAZARD_MODE    HIGH  // HIGH (floating/pullup) = RotorHazard node mode (default)
 // Note: Floating (nothing connected) = ROTORHAZARD_MODE (default)

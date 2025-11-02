@@ -25,10 +25,20 @@ enum OperationMode {
 OperationMode current_mode;
 bool mode_initialized = false;
 
+#if ENABLE_LCD_UI
+// For touch boards, mode is controlled by UI instead of physical pin
+OperationMode requested_mode = MODE_STANDALONE;  // Default to standalone for LCD boards
+#endif
+
 // Function declarations
 void checkModeSwitch();
 void initializeMode();
 void serialEvent();
+
+#if ENABLE_LCD_UI
+// Function to request mode change from UI (touch boards only)
+void requestModeChange(OperationMode new_mode);
+#endif
 
 void setup() {
   Serial.begin(UART_BAUD_RATE);
@@ -48,13 +58,24 @@ void setup() {
   // This prevents boot messages from being misinterpreted as protocol responses
   delay(300);
   
-  // Initialize mode selection pin (LOW=Standalone, HIGH/floating=RotorHazard)
+#if ENABLE_LCD_UI
+  // Touch board: Mode is controlled via touchscreen button, not physical pin
+  // ALWAYS start in standalone mode on boot (LCD/WiFi mode)
+  // This ensures users can always access the UI to switch modes, even after
+  // a reset while in RotorHazard mode (where LCD is not visible)
+  current_mode = MODE_STANDALONE;
+  requested_mode = MODE_STANDALONE;  // Ensure both are in sync
+  Serial.println("Touch board detected: Mode switch via LCD UI");
+  Serial.println("Defaulting to STANDALONE mode (user can switch via LCD button)");
+#else
+  // Non-touch boards: Initialize mode selection pin (LOW=Standalone, HIGH/floating=RotorHazard)
   pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
   
   // Determine initial mode BEFORE any serial output
   // LOW (GND) = Standalone mode, HIGH (floating/pullup) = RotorHazard mode
   bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
   current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
+#endif
   
   // Only show startup messages in standalone mode (safe for debug output)
   if (current_mode == MODE_STANDALONE) {
@@ -117,6 +138,16 @@ void serialEvent() {
 }
 
 void checkModeSwitch() {
+#if ENABLE_LCD_UI
+  // Touch board: Check for mode change requests from UI button
+  if (requested_mode != current_mode) {
+    current_mode = requested_mode;
+    // Update debug mode for timing core
+    timing.setDebugMode(current_mode == MODE_STANDALONE);
+    initializeMode();
+  }
+#else
+  // Non-touch boards: Check physical mode switch pin
   static unsigned long last_check = 0;
   static bool last_switch_state = -1; // Initialize to invalid state to force first check
   
@@ -148,6 +179,7 @@ void checkModeSwitch() {
   }
   
   last_check = millis();
+#endif
 }
 
 void initializeMode() {
@@ -177,3 +209,12 @@ void initializeMode() {
   
   mode_initialized = true;
 }
+
+#if ENABLE_LCD_UI
+// Function to request mode change from UI (touch boards only)
+void requestModeChange(OperationMode new_mode) {
+  requested_mode = new_mode;
+  Serial.printf("UI: Mode change requested to %s\n", 
+                new_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
+}
+#endif

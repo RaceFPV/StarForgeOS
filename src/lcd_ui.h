@@ -58,6 +58,7 @@ private:
     lv_obj_t* start_btn;
     lv_obj_t* stop_btn;
     lv_obj_t* clear_btn;
+    lv_obj_t* mode_btn;  // Mode switch button (RotorHazard/Standalone)
     
     // Settings UI elements (scrollable section)
     lv_obj_t* band_label;
@@ -102,6 +103,7 @@ private:
     static void start_btn_event(lv_event_t* e);
     static void stop_btn_event(lv_event_t* e);
     static void clear_btn_event(lv_event_t* e);
+    static void mode_btn_event(lv_event_t* e);  // Mode switch button
     static void band_prev_event(lv_event_t* e);
     static void band_next_event(lv_event_t* e);
     static void channel_prev_event(lv_event_t* e);
