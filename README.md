@@ -2,6 +2,8 @@
 
 **The ultimate dual-mode FPV race timer** - Works standalone with WiFi or integrates seamlessly with RotorHazard server. Built on ESP32 for maximum performance and reliability.
 
+> **📚 [Quick Start Guide →](docs/QUICKSTART.md)** - New user? Start here for step-by-step setup instructions, pinouts, and troubleshooting!
+
 Want to contribute, learn more, or need help, reach out to our Rotorhazard discord channel [here](https://discord.gg/Ep8sqJmh9d)
 
 ## 🏁 Two Modes, One Device

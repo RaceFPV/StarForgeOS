@@ -3,8 +3,22 @@ name: Build PlatformIO Firmware
 on:
   push:
     branches: [ main, master, develop ]
+    paths:
+      - 'src/**'
+      - 'data/**'
+      - 'platformio.ini'
+      - 'partitions_custom.csv'
+      - 'sdkconfig.defaults'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [ main, master, develop ]
+    paths:
+      - 'src/**'
+      - 'data/**'
+      - 'platformio.ini'
+      - 'partitions_custom.csv'
+      - 'sdkconfig.defaults'
+      - '.github/workflows/build.yml'
   release:
     types: [ created ]
   workflow_dispatch:  # Allows manual triggering

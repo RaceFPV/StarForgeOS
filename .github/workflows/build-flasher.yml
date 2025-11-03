@@ -3,8 +3,14 @@ name: Build StarForge Flash Tool
 on:
   push:
     branches: [ main, master, develop ]
+    paths:
+      - 'flash_tool/**'
+      - '.github/workflows/build-flasher.yml'
   pull_request:
     branches: [ main, master, develop ]
+    paths:
+      - 'flash_tool/**'
+      - '.github/workflows/build-flasher.yml'
   release:
     types: [ created, published ]
   workflow_dispatch:
