@@ -25,6 +25,13 @@ enum OperationMode {
 OperationMode current_mode;
 bool mode_initialized = false;
 
+#if ENABLE_POWER_BUTTON
+// Power button state tracking
+unsigned long power_button_press_start = 0;
+bool power_button_pressed = false;
+bool deep_sleep_initiated = false;
+#endif
+
 #if ENABLE_LCD_UI
 // For touch boards, mode is controlled by UI instead of physical pin
 OperationMode requested_mode = MODE_STANDALONE;  // Default to standalone for LCD boards
@@ -34,6 +41,11 @@ OperationMode requested_mode = MODE_STANDALONE;  // Default to standalone for LC
 void checkModeSwitch();
 void initializeMode();
 void serialEvent();
+
+#if ENABLE_POWER_BUTTON
+void checkPowerButton();
+void enterDeepSleep();
+#endif
 
 #if ENABLE_LCD_UI
 // Function to request mode change from UI (touch boards only)
@@ -93,6 +105,16 @@ void setup() {
   // Otherwise it starves serial/WiFi setup (same issue as WiFi AP initialization)
   timing.begin();
   
+#if ENABLE_POWER_BUTTON
+  // Initialize power button (pin 22 on JC2432W328C)
+  pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
+  
+  // Configure deep sleep wake-up on power button press (active LOW)
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON_PIN, 0);  // Wake when pin goes LOW
+  
+  Serial.println("Power button enabled on pin 22 (long press = sleep)");
+#endif
+  
   // Set debug mode based on current mode
   bool debug_mode = (current_mode == MODE_STANDALONE);
   timing.setDebugMode(debug_mode);
@@ -106,6 +128,11 @@ void setup() {
 }
 
 void loop() {
+#if ENABLE_POWER_BUTTON
+  // Check power button first (highest priority)
+  checkPowerButton();
+#endif
+  
   // Check for mode changes
   checkModeSwitch();
   
@@ -218,3 +245,67 @@ void requestModeChange(OperationMode new_mode) {
                 new_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
 }
 #endif
+
+#if ENABLE_POWER_BUTTON
+// Check power button state and handle long press for deep sleep
+void checkPowerButton() {
+  bool button_state = digitalRead(POWER_BUTTON_PIN);
+  
+  // Button pressed (active LOW)
+  if (button_state == LOW) {
+    if (!power_button_pressed) {
+      // Button just pressed - start timing
+      power_button_press_start = millis();
+      power_button_pressed = true;
+      deep_sleep_initiated = false;
+    } else {
+      // Button held down - check duration
+      unsigned long press_duration = millis() - power_button_press_start;
+      
+      if (press_duration >= POWER_BUTTON_LONG_PRESS_MS && !deep_sleep_initiated) {
+        // Long press detected - enter deep sleep
+        deep_sleep_initiated = true;
+        Serial.println("Power button long press detected - entering deep sleep...");
+        Serial.println("Press power button to wake up");
+        delay(100);  // Let serial output complete
+        enterDeepSleep();
+      }
+    }
+  } else {
+    // Button released
+    if (power_button_pressed) {
+      unsigned long press_duration = millis() - power_button_press_start;
+      
+      // Short press - could be used for other functions if needed
+      if (press_duration < POWER_BUTTON_LONG_PRESS_MS && press_duration > 50) {
+        Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
+        // Optional: Could show a menu or toggle something here
+      }
+      
+      power_button_pressed = false;
+      deep_sleep_initiated = false;
+    }
+  }
+}
+
+// Enter deep sleep mode
+void enterDeepSleep() {
+#if ENABLE_LCD_UI
+  // Turn off backlight to save power
+  digitalWrite(LCD_BACKLIGHT, LOW);
+  
+  // Show sleep message on LCD if possible
+  // (Could add a simple "Sleeping..." message to lcd_ui if desired)
+#endif
+  
+  // Flush serial
+  Serial.flush();
+  
+  // Enter deep sleep - wake on power button press
+  // The esp_sleep_enable_ext0_wakeup() was already configured in setup()
+  esp_deep_sleep_start();
+  
+  // Code never reaches here - ESP32 will reset on wake
+}
+#endif
+

@@ -260,13 +260,33 @@ void TimingCore::timingTask(void* parameter) {
             Serial.printf("Crossing started - RSSI: %d\n", filtered_rssi);
           }
         } else {
-          // Ending a crossing - record lap
+          // Ending a crossing - check if enough time has passed since last lap
+          uint32_t time_since_last_lap = current_time - core->state.last_lap_time;
           uint32_t crossing_duration = current_time - core->state.crossing_start;
-          if (crossing_duration > 100) { // Minimum 100ms crossing to avoid noise
+          
+          // Require both minimum crossing duration AND minimum time between laps
+          if (crossing_duration > 100 && time_since_last_lap >= MIN_LAP_TIME_MS) {
+            // Valid lap - record it
             core->recordLap(current_time, core->state.peak_rssi);
             // Reset pass nadir after crossing ends
             core->state.pass_rssi_nadir = 255;
+            
+            if (core->debug_enabled) {
+              Serial.printf("Lap recorded - Duration: %dms, Time since last: %dms\n", 
+                           crossing_duration, time_since_last_lap);
+            }
+          } else {
+            // Lap rejected - too soon after last lap or too short
+            if (core->debug_enabled) {
+              if (time_since_last_lap < MIN_LAP_TIME_MS) {
+                Serial.printf("Lap rejected - Too soon (only %dms since last lap, need %dms)\n", 
+                             time_since_last_lap, MIN_LAP_TIME_MS);
+              } else {
+                Serial.printf("Lap rejected - Crossing too short (%dms)\n", crossing_duration);
+              }
+            }
           }
+          
           if (core->debug_enabled) {
             Serial.printf("Crossing ended - Duration: %dms\n", crossing_duration);
           }

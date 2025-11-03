@@ -1,18 +1,24 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>StarForge Race Timer</title>
+    <meta charset="UTF-8">
+    <title>⚡ StarForge Race Timer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="container">
-        <h1>StarForge Race Timer</h1>
-        <div id="status" class="status">Status: Ready</div>
+        <header>
+            <h1>⚡ STARFORGE TIMER</h1>
+            <div class="status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </header>
         
         <div class="config-section">
             <div class="config-header" onclick="toggleConfig()">
-                <h3>Configuration</h3>
+                <h3>⚙ Configuration</h3>
                 <span class="expand-icon collapsed" id="configIcon">&#9660;</span>
             </div>
             <div class="config-content collapsed" id="configContent">
@@ -37,8 +43,10 @@
                 <div class="config-row">
                     <div class="config-item">
                         <label for="thresholdSlider">RSSI Threshold:</label>
-                        <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)">
-                        <span id="thresholdValue">50</span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="range" id="thresholdSlider" min="20" max="200" value="50" oninput="updateThresholdVisual(this.value)" onchange="updateThresholdServer(this.value)" style="flex: 1;">
+                            <span id="thresholdValue">50</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -50,38 +58,139 @@
             </div>
         </div>
         
-        <div class="controls">
-            <button id="startBtn" onclick="startRace()" class="btn btn-primary">Start Race</button>
-            <button id="stopBtn" onclick="stopRace()" class="btn btn-secondary">Stop Race</button>
-            <button id="clearBtn" onclick="clearLaps()" class="btn btn-danger">Clear Laps</button>
-            <button id="audioToggle" onclick="toggleAudio()" class="btn btn-info active">Audio On</button>
-            <button onclick="testAudio()" class="btn btn-info">Test Audio</button>
+        <div class="control-panel">
+            <div class="controls">
+                <button id="startBtn" onclick="startRace()" class="btn btn-primary">▶ Start Race</button>
+                <button id="stopBtn" onclick="stopRace()" class="btn btn-secondary">⏹ Stop Race</button>
+                <button id="clearBtn" onclick="clearLaps()" class="btn btn-danger">🗑️ Clear Laps</button>
+            </div>
+            <div class="controls">
+                <button id="audioToggle" onclick="toggleAudio()" class="btn btn-info active">🔊 Audio On</button>
+                <button onclick="testAudio()" class="btn btn-info">🔈 Test Audio</button>
+            </div>
         </div>
         
-        
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-number" id="lapCount">0</div>
-                <div class="stat-label">Total Laps</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="bestLap">--:--</div>
-                <div class="stat-label">Best Lap</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="lastLap">--:--</div>
-                <div class="stat-label">Last Lap</div>
+        <div class="current-status">
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-label">Total Laps</div>
+                    <div class="stat-number" id="lapCount">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Best Lap</div>
+                    <div class="stat-number" id="bestLap">--:--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Last Lap</div>
+                    <div class="stat-number" id="lastLap">--:--</div>
+                </div>
             </div>
         </div>
         
         <div class="laps-section">
-            <h2>Lap Times</h2>
+            <h2>🏁 Lap Times</h2>
             <div id="laps" class="laps-container">
                 <p class="no-laps">No laps recorded yet</p>
             </div>
         </div>
     </div>
 
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=5"></script>
+    <script>
+        function toggleConfig() {
+            const content = document.getElementById('configContent');
+            const icon = document.getElementById('configIcon');
+            content.classList.toggle('collapsed');
+            icon.classList.toggle('collapsed');
+        }
+        
+        function updateThresholdVisual(value) {
+            document.getElementById('thresholdValue').textContent = value;
+        }
+        
+        function updateThresholdServer(value) {
+            // Update threshold on server
+            fetch('/api/set_threshold', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `threshold=${value}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Threshold updated:', data);
+            })
+            .catch(error => {
+                console.error('Error updating threshold:', error);
+            });
+        }
+        
+        function toggleAudio() {
+            if (window.raceTimer) {
+                raceTimer.toggleAudio();
+            }
+        }
+        
+        function updateChannels() {
+            // Called when band selector changes
+            if (window.raceTimer && window.raceTimer.updateChannelOptions) {
+                const bandSelect = document.getElementById('bandSelect');
+                window.raceTimer.updateChannelOptions(bandSelect.value);
+            } else {
+                console.log('Waiting for RaceTimer initialization...');
+                // Try again after a short delay
+                setTimeout(() => {
+                    if (window.raceTimer && window.raceTimer.updateChannelOptions) {
+                        const bandSelect = document.getElementById('bandSelect');
+                        window.raceTimer.updateChannelOptions(bandSelect.value);
+                    }
+                }, 500);
+            }
+        }
+        
+        function setFrequency() {
+            // Called when channel selector changes
+            const channelSelect = document.getElementById('channelSelect');
+            const frequency = parseInt(channelSelect.value);
+            
+            console.log('Setting frequency to:', frequency);
+            
+            // Send to server via API
+            fetch('/api/set_frequency', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `frequency=${frequency}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Frequency set:', data);
+            })
+            .catch(error => {
+                console.error('Error setting frequency:', error);
+            });
+        }
+        
+        function clearLaps() {
+            if (confirm('Are you sure you want to clear all lap data?')) {
+                fetch('/api/clear_laps', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Laps cleared:', data);
+                    if (window.raceTimer) {
+                        window.raceTimer.laps = [];
+                        window.raceTimer.updateLapDisplay();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error clearing laps:', error);
+                });
+            }
+        }
+    </script>
 </body>
 </html>

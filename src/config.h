@@ -19,6 +19,7 @@
     #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
     #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
     #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection (IGNORED on touch boards - use LCD button instead)
+    #define POWER_BUTTON_PIN    22    // GPIO22 - Repurposed as power button (long press = deep sleep, wake on press)
     // BATTERY_ADC_PIN is defined later in the LCD UI section (GPIO34, repurposed from light sensor)
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
 #else
@@ -46,7 +47,8 @@
 // Timing configuration
 #define TIMING_INTERVAL_MS  1     // Core timing loop interval
 #define RSSI_SAMPLES        10    // Number of RSSI samples to average (50ms smoothing window)
-#define CROSSING_THRESHOLD  50    // Default RSSI threshold for crossing detection
+#define CROSSING_THRESHOLD  100    // Default RSSI threshold for crossing detection
+#define MIN_LAP_TIME_MS     3000  // Minimum time between laps (3 seconds) - prevents false laps from threshold bouncing
 
 // FreeRTOS task priorities
 // Note: ESP32-D0WD (dual core) can run timing + web server concurrently
@@ -116,6 +118,14 @@
     #define BATTERY_MIN_VOLTAGE     3.0   // 1S LiPo minimum (empty)
     #define BATTERY_MAX_VOLTAGE     4.2   // 1S LiPo maximum (full charge)
     #define BATTERY_SAMPLES         10    // Number of ADC samples to average for stability
+    
+    // Power button configuration (for JC2432W328C with repurposed pin 22)
+    // Hardware: Connect momentary push button between GPIO22 and GND
+    // The internal pullup resistor will be enabled, so button press = LOW signal
+    // Long press (3 seconds) enters deep sleep mode
+    // Press button again to wake from sleep (ESP32 will reset/reboot)
+    #define ENABLE_POWER_BUTTON     1     // Enable power button functionality
+    #define POWER_BUTTON_LONG_PRESS_MS  3000  // Hold for 3 seconds to enter deep sleep
 #endif
 
 // Data storage
