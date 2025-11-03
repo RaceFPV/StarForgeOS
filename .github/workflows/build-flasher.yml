@@ -6,13 +6,15 @@ on:
     paths:
       - 'flash_tool/**'
       - '.github/workflows/build-flasher.yml'
+    tags:
+      - 'v*'  # Trigger on version tags (v1.0.0, v1.2.3, etc)
   pull_request:
     branches: [ main, master, develop ]
     paths:
       - 'flash_tool/**'
       - '.github/workflows/build-flasher.yml'
   release:
-    types: [ created, published ]
+    types: [ created, published ]  # Trigger on both created and published releases
   workflow_dispatch:
 
 permissions:

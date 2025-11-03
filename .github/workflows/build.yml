@@ -10,6 +10,8 @@ on:
       - 'partitions_custom.csv'
       - 'sdkconfig.defaults'
       - '.github/workflows/build.yml'
+    tags:
+      - 'v*'  # Trigger on version tags (v1.0.0, v1.2.3, etc)
   pull_request:
     branches: [ main, master, develop ]
     paths:
@@ -20,7 +22,7 @@ on:
       - 'sdkconfig.defaults'
       - '.github/workflows/build.yml'
   release:
-    types: [ created ]
+    types: [ created, published ]  # Trigger on both created and published releases
   workflow_dispatch:  # Allows manual triggering
 
 # Grant permissions for uploading to releases
