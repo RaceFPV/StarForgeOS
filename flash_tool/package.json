@@ -42,15 +42,13 @@
       "target": [
         "dmg",
         "zip"
-      ],
-      "icon": "assets/icon.png"
+      ]
     },
     "win": {
       "target": [
         "nsis",
         "portable"
-      ],
-      "icon": "assets/icon.png"
+      ]
     },
     "files": [
       "**/*",
