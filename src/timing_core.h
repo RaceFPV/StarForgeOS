@@ -156,6 +156,8 @@ public:
   bool hasPendingNadir();
   Extremum getNextPeak();
   Extremum getNextNadir();
+  Extremum peekNextPeak() const;  // Peek without removing
+  Extremum peekNextNadir() const;  // Peek without removing
   uint8_t getNadirRSSI() const;
   uint8_t getPassNadirRSSI() const;
   

@@ -97,6 +97,27 @@
 
     <script src="/app.js?v=5"></script>
     <script>
+        // Initialize threshold from server on page load
+        async function initializeThreshold() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                if (data.threshold !== undefined) {
+                    const slider = document.getElementById('thresholdSlider');
+                    const value = document.getElementById('thresholdValue');
+                    if (slider && value) {
+                        slider.value = data.threshold;
+                        value.textContent = data.threshold;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading threshold:', error);
+            }
+        }
+        
+        // Call on page load
+        window.addEventListener('load', initializeThreshold);
+        
         function toggleConfig() {
             const content = document.getElementById('configContent');
             const icon = document.getElementById('configIcon');

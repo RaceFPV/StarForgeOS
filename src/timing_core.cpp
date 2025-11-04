@@ -424,59 +424,96 @@ void TimingCore::recordLap(uint32_t timestamp, uint8_t peak_rssi) {
 }
 
 // Extremum tracking implementation (for marshal mode)
+// Based on RotorHazard reference implementation in RssiNode.cpp
 void TimingCore::processExtremums(uint32_t timestamp, uint8_t filtered_rssi) {
   // Detect RSSI change direction
-  int8_t new_change = 0;
-  if (filtered_rssi > state.last_rssi) {
-    new_change = 1;  // Rising
-  } else if (filtered_rssi < state.last_rssi) {
-    new_change = -1; // Falling
-  }
+  const int rssiChange = filtered_rssi - state.last_rssi;
   
-  // Detect when trend changes (peak or nadir found)
-  if (state.rssi_change != new_change && new_change != 0) {
-    if (state.rssi_change > 0) {
-      // Was rising, now falling = peak found
-      finalizePeak(timestamp);
-    } else if (state.rssi_change < 0) {
-      // Was falling, now rising = nadir found
+  if (rssiChange > 0) {
+    // RSSI is rising
+    // Must buffer latest peak to prevent losing it (overwriting any unsent peak)
+    bufferPeak(current_peak);
+    
+    // Start tracking new peak with current RSSI value
+    current_peak.rssi = filtered_rssi;
+    current_peak.first_time = timestamp;
+    current_peak.duration = 0;
+    current_peak.valid = true;
+    
+    // If RSSI was falling or unchanged, but it's rising now, we found a nadir
+    if (state.rssi_change <= 0 && current_nadir.valid) {
+      // Finalize and buffer the nadir we were tracking
       finalizeNadir(timestamp);
     }
-  }
-  
-  // Update current extremums
-  if (new_change > 0 || state.rssi_change == 0) {
-    // Rising or first sample - track peak
-    if (filtered_rssi > current_peak.rssi || !current_peak.valid) {
-      current_peak.rssi = filtered_rssi;
-      if (!current_peak.valid) {
+    
+  } else if (rssiChange < 0) {
+    // RSSI is falling
+    // Must buffer latest nadir to prevent losing it (overwriting any unsent nadir)
+    bufferNadir(current_nadir);
+    
+    // Start tracking new nadir with current RSSI value
+    current_nadir.rssi = filtered_rssi;
+    current_nadir.first_time = timestamp;
+    current_nadir.duration = 0;
+    current_nadir.valid = true;
+    
+    // If RSSI was rising or unchanged, but it's falling now, we found a peak
+    if (state.rssi_change >= 0 && current_peak.valid) {
+      // Finalize and buffer the peak we were tracking
+      finalizePeak(timestamp);
+    }
+    
+  } else {
+    // RSSI is unchanged
+    if (filtered_rssi == current_peak.rssi && current_peak.valid) {
+      // Still at peak - extend duration
+      uint32_t duration = timestamp - current_peak.first_time;
+      current_peak.duration = (duration > 0xFFFF) ? 0xFFFF : duration;
+      
+      // If peak duration maxed out, buffer it and start a new one
+      if (current_peak.duration == 0xFFFF) {
+        bufferPeak(current_peak);
+        current_peak.rssi = filtered_rssi;
         current_peak.first_time = timestamp;
+        current_peak.duration = 0;
         current_peak.valid = true;
       }
-    }
-  }
-  
-  if (new_change < 0 || state.rssi_change == 0) {
-    // Falling or first sample - track nadir
-    if (filtered_rssi < current_nadir.rssi || !current_nadir.valid) {
-      current_nadir.rssi = filtered_rssi;
-      if (!current_nadir.valid) {
+    } else if (filtered_rssi == current_nadir.rssi && current_nadir.valid) {
+      // Still at nadir - extend duration
+      uint32_t duration = timestamp - current_nadir.first_time;
+      current_nadir.duration = (duration > 0xFFFF) ? 0xFFFF : duration;
+      
+      // If nadir duration maxed out, buffer it and start a new one
+      if (current_nadir.duration == 0xFFFF) {
+        bufferNadir(current_nadir);
+        current_nadir.rssi = filtered_rssi;
         current_nadir.first_time = timestamp;
+        current_nadir.duration = 0;
         current_nadir.valid = true;
       }
     }
   }
   
-  // Update state
+  // Update state for next iteration
   state.last_rssi = filtered_rssi;
-  if (new_change != 0) {
-    state.rssi_change = new_change;
+  
+  // Clamp rssiChange to prevent overflow (like RotorHazard does)
+  if (rssiChange > 127) {
+    state.rssi_change = 127;
+  } else if (rssiChange < -127) {
+    state.rssi_change = -127;
+  } else {
+    state.rssi_change = rssiChange;
   }
 }
 
 void TimingCore::finalizePeak(uint32_t timestamp) {
   if (current_peak.valid && current_peak.rssi > 0) {
-    current_peak.duration = timestamp - current_peak.first_time;
+    // Calculate final duration
+    uint32_t duration = timestamp - current_peak.first_time;
+    current_peak.duration = (duration > 0xFFFF) ? 0xFFFF : duration;
+    
+    // Buffer the completed peak
     bufferPeak(current_peak);
   }
   
@@ -486,7 +523,11 @@ void TimingCore::finalizePeak(uint32_t timestamp) {
 
 void TimingCore::finalizeNadir(uint32_t timestamp) {
   if (current_nadir.valid && current_nadir.rssi < 255) {
-    current_nadir.duration = timestamp - current_nadir.first_time;
+    // Calculate final duration
+    uint32_t duration = timestamp - current_nadir.first_time;
+    current_nadir.duration = (duration > 0xFFFF) ? 0xFFFF : duration;
+    
+    // Buffer the completed nadir
     bufferNadir(current_nadir);
   }
   
@@ -496,6 +537,11 @@ void TimingCore::finalizeNadir(uint32_t timestamp) {
 }
 
 void TimingCore::bufferPeak(const Extremum& peak) {
+  // Only buffer valid peaks (RotorHazard checks validity before buffering)
+  if (!peak.valid || peak.rssi == 0) {
+    return;
+  }
+  
   peak_buffer[peak_write_index] = peak;
   peak_write_index = (peak_write_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
   
@@ -506,6 +552,11 @@ void TimingCore::bufferPeak(const Extremum& peak) {
 }
 
 void TimingCore::bufferNadir(const Extremum& nadir) {
+  // Only buffer valid nadirs (RotorHazard checks validity before buffering)
+  if (!nadir.valid || nadir.rssi == 255) {
+    return;
+  }
+  
   nadir_buffer[nadir_write_index] = nadir;
   nadir_write_index = (nadir_write_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
   
@@ -855,6 +906,24 @@ Extremum TimingCore::getNextNadir() {
   Extremum nadir = nadir_buffer[nadir_read_index];
   nadir_read_index = (nadir_read_index + 1) & (EXTREMUM_BUFFER_SIZE - 1);
   return nadir;
+}
+
+Extremum TimingCore::peekNextPeak() const {
+  if (peak_read_index == peak_write_index) {
+    Extremum empty = {0, 0, 0, false};
+    return empty;
+  }
+  
+  return peak_buffer[peak_read_index];
+}
+
+Extremum TimingCore::peekNextNadir() const {
+  if (nadir_read_index == nadir_write_index) {
+    Extremum empty = {255, 0, 0, false};
+    return empty;
+  }
+  
+  return nadir_buffer[nadir_read_index];
 }
 
 uint8_t TimingCore::getNadirRSSI() const {

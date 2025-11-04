@@ -37,6 +37,7 @@ public:
     void setStartCallback(void (*callback)());
     void setStopCallback(void (*callback)());
     void setClearCallback(void (*callback)());
+    void setSettingsChangedCallback(void (*callback)());  // Called when user changes settings
     
     // Task handler (runs in separate FreeRTOS task)
     static void uiTask(void* parameter);
@@ -72,6 +73,7 @@ private:
     void (*_startCallback)();
     void (*_stopCallback)();
     void (*_clearCallback)();
+    void (*_settingsChangedCallback)();  // Called when user changes settings
     
     // RSSI graph rate limiting
     unsigned long _lastGraphUpdate;

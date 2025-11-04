@@ -3,6 +3,7 @@
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
+#include <Preferences.h>
 #include <string.h>
 #include "config.h"
 
@@ -87,6 +88,10 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     Serial.printf("mDNS hostname: %s.local\n", MDNS_HOSTNAME);
     Serial.println("Open browser to http://192.168.4.1 or http://sfos.local");
     
+    // Load saved settings from flash BEFORE creating LCD UI and web server task
+    // This ensures the correct values are displayed on boot
+    loadSettings();
+    
     // Create dedicated web server task
     // ESP32 dual-core: Pin to Core 0 (same as WiFi stack)
     // ESP32-C3 (single core): No core pinning
@@ -114,6 +119,12 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         _lcdUI->setStartCallback(lcdStartCallback);
         _lcdUI->setStopCallback(lcdStopCallback);
         _lcdUI->setClearCallback(lcdClearCallback);
+        _lcdUI->setSettingsChangedCallback([]() {
+            // Called when user changes settings via LCD
+            if (_lcdInstance) {
+                _lcdInstance->saveSettings();
+            }
+        });
         _lcdUI->setTimingCore(_timingCore);  // Link timing core for settings access
         
         // Initialize settings display
@@ -121,7 +132,12 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         _timingCore->getRX5808Settings(band, channel);
         _lcdUI->updateBandChannel(band, channel);
         _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
-        _lcdUI->updateThreshold(_timingCore->getThreshold());
+        
+        // Get and display current threshold from timing core
+        uint8_t current_threshold = _timingCore->getThreshold();
+        Serial.printf("LCD: Displaying threshold: %d (from config: %d)\n", 
+                      current_threshold, CROSSING_THRESHOLD);
+        _lcdUI->updateThreshold(current_threshold);
         
         // Create LCD UI task
         // ESP32 dual-core: Pin to Core 0 (with WiFi/web, low priority)
@@ -183,20 +199,24 @@ void StandaloneMode::process() {
     }
     
 #if ENABLE_LCD_UI
-    // Update LCD RSSI (every loop iteration for real-time display)
-    if (_lcdUI && _timingCore) {
-        _lcdUI->updateRSSI(_timingCore->getCurrentRSSI());
-        
-        // Update settings display periodically (every 100ms is enough)
-        static unsigned long last_settings_update = 0;
-        if (millis() - last_settings_update > 100) {
-            uint8_t band, channel;
-            _timingCore->getRX5808Settings(band, channel);
-            _lcdUI->updateBandChannel(band, channel);
-            _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
-            _lcdUI->updateThreshold(_timingCore->getThreshold());
-            last_settings_update = millis();
-        }
+        // Update LCD RSSI (every loop iteration for real-time display)
+        if (_lcdUI && _timingCore) {
+            _lcdUI->updateRSSI(_timingCore->getCurrentRSSI());
+            
+            // Update settings display periodically (every 100ms is enough)
+            static unsigned long last_settings_update = 0;
+            if (millis() - last_settings_update > 100) {
+                uint8_t band, channel;
+                _timingCore->getRX5808Settings(band, channel);
+                _lcdUI->updateBandChannel(band, channel);
+                _lcdUI->updateFrequency(_timingCore->getCurrentFrequency());
+                
+                // Update threshold display (should always match config)
+                uint8_t threshold = _timingCore->getThreshold();
+                _lcdUI->updateThreshold(threshold);
+                
+                last_settings_update = millis();
+            }
         
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
         // Update battery status every 5 seconds
@@ -428,9 +448,10 @@ void StandaloneMode::handleSetFrequency() {
         if (freq >= 5645 && freq <= 5945) {
             if (_timingCore) {
                 _timingCore->setFrequency(freq);
+                saveSettings();  // Save settings to flash
             }
             _server.send(200, "application/json", "{\"status\":\"frequency_set\",\"frequency\":" + String(freq) + "}");
-            Serial.printf("Frequency set to: %d MHz\n", freq);
+            Serial.printf("Frequency set to: %d MHz (saved)\n", freq);
         } else {
             _server.send(400, "application/json", "{\"error\":\"invalid_frequency\"}");
         }
@@ -445,9 +466,10 @@ void StandaloneMode::handleSetThreshold() {
         if (threshold >= 0 && threshold <= 255) {
             if (_timingCore) {
                 _timingCore->setThreshold(threshold);
+                saveSettings();  // Save settings to flash
             }
             _server.send(200, "application/json", "{\"status\":\"threshold_set\",\"threshold\":" + String(threshold) + "}");
-            Serial.printf("Threshold set to: %d\n", threshold);
+            Serial.printf("Threshold set to: %d (saved)\n", threshold);
         } else {
             _server.send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
         }
@@ -694,3 +716,70 @@ void StandaloneMode::lcdClearCallback() {
     }
 }
 #endif
+
+// Settings persistence using ESP32 Preferences (like EEPROM on Arduino)
+void StandaloneMode::loadSettings() {
+    Preferences prefs;
+    
+    // Open preferences in read-only mode
+    if (!prefs.begin("sfos", true)) {
+        Serial.println("Failed to open preferences for reading");
+        return;
+    }
+    
+    // Check if settings exist (using a magic number to verify initialization)
+    uint32_t magic = prefs.getUInt("magic", 0);
+    if (magic != 0x53464F53) {  // "SFOS" in hex
+        Serial.println("No saved settings found, using defaults");
+        prefs.end();
+        return;
+    }
+    
+    // Load settings
+    uint8_t band = prefs.getUChar("band", 0);
+    uint8_t channel = prefs.getUChar("channel", 0);
+    uint8_t threshold = prefs.getUChar("threshold", CROSSING_THRESHOLD);
+    
+    prefs.end();
+    
+    // Apply loaded settings to timing core
+    if (_timingCore) {
+        _timingCore->setRX5808Settings(band, channel);
+        _timingCore->setThreshold(threshold);
+        
+        Serial.println("\n=== Loaded Settings from Flash ===");
+        Serial.printf("Band: %d, Channel: %d\n", band, channel + 1);
+        Serial.printf("Frequency: %d MHz\n", _timingCore->getCurrentFrequency());
+        Serial.printf("Threshold: %d\n", threshold);
+        Serial.println("===================================\n");
+    }
+}
+
+void StandaloneMode::saveSettings() {
+    if (!_timingCore) return;
+    
+    Preferences prefs;
+    
+    // Open preferences in read-write mode
+    if (!prefs.begin("sfos", false)) {
+        Serial.println("Failed to open preferences for writing");
+        return;
+    }
+    
+    // Get current settings from timing core
+    uint8_t band, channel;
+    _timingCore->getRX5808Settings(band, channel);
+    uint8_t threshold = _timingCore->getThreshold();
+    
+    // Save magic number to indicate settings are valid
+    prefs.putUInt("magic", 0x53464F53);  // "SFOS" in hex
+    
+    // Save settings
+    prefs.putUChar("band", band);
+    prefs.putUChar("channel", channel);
+    prefs.putUChar("threshold", threshold);
+    
+    prefs.end();
+    
+    Serial.println("Settings saved to flash");
+}

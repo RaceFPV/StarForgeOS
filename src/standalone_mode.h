@@ -18,6 +18,7 @@ public:
     StandaloneMode();
     void begin(TimingCore* timingCore);
     void process();
+    void saveSettings();  // Public so LCD UI can call it
 
 private:
     WebServer _server;
@@ -73,6 +74,9 @@ private:
     void handleAppJS();
     void handleNotFound();
     void setupWiFiAP();
+    
+    // Settings persistence (uses ESP32 Preferences library)
+    void loadSettings();
 };
 
 #endif // STANDALONE_MODE_H

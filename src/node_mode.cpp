@@ -177,11 +177,11 @@ void NodeMode::begin(TimingCore* timingCore) {
     serialMessage.nodeMode = this;  // Set pointer for Message to access NodeMode data
     
     // Initialize with default settings ONLY if not already set
-    // This prevents resetting frequency when mode is re-initialized
+    // This prevents resetting frequency/threshold when mode is re-initialized
     static bool first_init = true;
     if (first_init) {
         _settings.vtxFreq = 5800;
-        _settings.enterAtLevel = 96;
+        _settings.enterAtLevel = CROSSING_THRESHOLD;  // Use config.h value, not hardcoded
         _settings.exitAtLevel = 80;
         _nodeIndex = 0;
         _slotIndex = 0;
@@ -391,21 +391,31 @@ void Message::handleReadCommand(bool serialFlag) {
             }
             
             // Check which extremum to send next (peak or nadir)
+            // Priority: send oldest extremum first (by timestamp) - matches RotorHazard logic
             bool has_peak = nodeMode && nodeMode->_timingCore && nodeMode->_timingCore->hasPendingPeak();
             bool has_nadir = nodeMode && nodeMode->_timingCore && nodeMode->_timingCore->hasPendingNadir();
             
-            // Determine which to send (prioritize by timestamp - oldest first)
             bool send_peak = false;
+            
             if (has_peak && !has_nadir) {
+                // Only have peak available
                 send_peak = true;
                 flags |= 0x02;  // LAPSTATS_FLAG_PEAK
             } else if (!has_peak && has_nadir) {
+                // Only have nadir available
                 send_peak = false;
             } else if (has_peak && has_nadir) {
-                // Both available - compare timestamps (peek without removing)
-                // For simplicity, alternate: if flag indicates peak, send peak
-                send_peak = true;
-                flags |= 0x02;  // LAPSTATS_FLAG_PEAK
+                // Both available - peek at both to compare timestamps (oldest first)
+                Extremum peek_peak = nodeMode->_timingCore->peekNextPeak();
+                Extremum peek_nadir = nodeMode->_timingCore->peekNextNadir();
+                
+                // Send the older extremum first (matches RotorHazard handleReadLapExtremums logic)
+                if (peek_peak.first_time < peek_nadir.first_time) {
+                    send_peak = true;
+                    flags |= 0x02;  // LAPSTATS_FLAG_PEAK
+                } else {
+                    send_peak = false;
+                }
             }
             
             buffer.write8(flags);
@@ -420,13 +430,13 @@ void Message::handleReadCommand(bool serialFlag) {
             buffer.write8(pass_nadir);  // rssi nadir since last pass
             buffer.write8(node_nadir);  // node rssi nadir
             
-            // Write extremum data
+            // Write extremum data (prioritizing by timestamp)
             if (send_peak && has_peak) {
                 Extremum peak = nodeMode->_timingCore->getNextPeak();
                 buffer.write8(peak.rssi);
                 
                 // Calculate time offset from current time (in milliseconds)
-                uint16_t time_offset = (timeNow > peak.first_time) ? (timeNow - peak.first_time) : 0;
+                uint16_t time_offset = (timeNow >= peak.first_time) ? (timeNow - peak.first_time) : 0;
                 buffer.write16(time_offset);
                 buffer.write16(peak.duration);
             } else if (!send_peak && has_nadir) {
@@ -434,7 +444,7 @@ void Message::handleReadCommand(bool serialFlag) {
                 buffer.write8(nadir.rssi);
                 
                 // Calculate time offset from current time (in milliseconds)
-                uint16_t time_offset = (timeNow > nadir.first_time) ? (timeNow - nadir.first_time) : 0;
+                uint16_t time_offset = (timeNow >= nadir.first_time) ? (timeNow - nadir.first_time) : 0;
                 buffer.write16(time_offset);
                 buffer.write16(nadir.duration);
             } else {

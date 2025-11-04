@@ -25,6 +25,7 @@ LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
                  band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
                  brightness_slider(nullptr), brightness_label(nullptr),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
+                 _settingsChangedCallback(nullptr),
                  _lastGraphUpdate(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
     _instance = this;
 }
@@ -528,6 +529,10 @@ void LcdUI::setClearCallback(void (*callback)()) {
     _clearCallback = callback;
 }
 
+void LcdUI::setSettingsChangedCallback(void (*callback)()) {
+    _settingsChangedCallback = callback;
+}
+
 void LcdUI::setTimingCore(TimingCore* core) {
     _timingCore = core;
 }
@@ -663,6 +668,11 @@ void LcdUI::band_prev_event(lv_event_t* e) {
         else band = 5;  // Wrap to L
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Band changed to %d\n", band);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
@@ -675,6 +685,11 @@ void LcdUI::band_next_event(lv_event_t* e) {
         else band = 0;  // Wrap to A
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Band changed to %d\n", band);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
@@ -687,6 +702,11 @@ void LcdUI::channel_prev_event(lv_event_t* e) {
         else channel = 7;  // Wrap to 8
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
@@ -699,6 +719,11 @@ void LcdUI::channel_next_event(lv_event_t* e) {
         else channel = 0;  // Wrap to 1
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
@@ -709,6 +734,11 @@ void LcdUI::threshold_dec_event(lv_event_t* e) {
         if (threshold > 10) threshold -= 5;  // Decrement by 5
         ui->_timingCore->setThreshold(threshold);
         Serial.printf("LCD: Threshold decreased to %d\n", threshold);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
@@ -719,6 +749,11 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
         if (threshold < 245) threshold += 5;  // Increment by 5
         ui->_timingCore->setThreshold(threshold);
         Serial.printf("LCD: Threshold increased to %d\n", threshold);
+        
+        // Notify standalone mode to save settings
+        if (ui->_settingsChangedCallback) {
+            ui->_settingsChangedCallback();
+        }
     }
 }
 
