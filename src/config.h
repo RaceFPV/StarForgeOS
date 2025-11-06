@@ -2,7 +2,16 @@
 #define CONFIG_H
 
 // Hardware pin definitions - board-specific
-#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+#if defined(CONFIG_IDF_TARGET_ESP32C6)
+    // ESP32-C6 (WiFi 6, single-core RISC-V)
+    // Note: GPIO3 is used for USB, so we use GPIO0 for ADC instead
+    #define RSSI_INPUT_PIN      0     // GPIO0 (ADC1_CH0) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
+    #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
+    #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
+    #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
+    #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
+#elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     // ESP32-C3 SuperMini (Hertz-hunter compatible)
     #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
     #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
@@ -52,8 +61,8 @@
 
 // FreeRTOS task priorities
 // Note: ESP32-D0WD (dual core) can run timing + web server concurrently
-//       ESP32-C3 (single core) shares CPU time between tasks
-#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+//       ESP32-C3/C6 (single core) shares CPU time between tasks
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     #define TIMING_PRIORITY     3     // High priority for timing (critical on single core)
     #define WEB_PRIORITY        1     // Lower priority for web server
 #else

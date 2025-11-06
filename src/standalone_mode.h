@@ -66,10 +66,6 @@ private:
     void handleSetFrequency();
     void handleSetThreshold();
     void handleGetChannels();
-    void handleTestHardware();
-    void handleTestChannelMode();
-    void handleTestChannelModeLow();
-    void handleTestChannelModeHigh();
     void handleStyleCSS();
     void handleAppJS();
     void handleNotFound();

@@ -30,6 +30,16 @@ const BOARD_CONFIGS = {
       spiffs: '0x290000'
     }
   },
+  'esp32-c6': {
+    name: 'ESP32-C6 Dev Module (WiFi 6)',
+    chip: 'esp32c6',
+    flashAddresses: {
+      bootloader: '0x0',
+      partitions: '0x8000',
+      firmware: '0x10000',
+      spiffs: '0x290000'
+    }
+  },
   'esp32dev': {
     name: 'ESP32 Dev Module',
     chip: 'esp32',
@@ -42,6 +52,16 @@ const BOARD_CONFIGS = {
   },
   'esp32-s3': {
     name: 'ESP32-S3 Dev Module',
+    chip: 'esp32s3',
+    flashAddresses: {
+      bootloader: '0x0',
+      partitions: '0x8000',
+      firmware: '0x10000',
+      spiffs: '0x290000'
+    }
+  },
+  'esp32-s3-touch': {
+    name: 'ESP32-S3 Touch LCD (no PSRAM)',
     chip: 'esp32s3',
     flashAddresses: {
       bootloader: '0x0',

@@ -89,11 +89,13 @@ The flasher is automatically built for every release via GitHub Actions.
 ### What Gets Built
 
 Each release includes:
-- **Firmware ZIPs**: 6 board types (existing)
+- **Firmware ZIPs**: 8 board types
   - `StarForge-esp32-c3-supermini.zip`
   - `StarForge-esp32-c3.zip`
+  - `StarForge-esp32-c6.zip`
   - `StarForge-esp32dev.zip`
   - `StarForge-esp32-s3.zip`
+  - `StarForge-esp32-s3-touch.zip`
   - `StarForge-esp32-s2.zip`
   - `StarForge-jc2432w328c.zip`
 

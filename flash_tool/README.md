@@ -72,8 +72,10 @@ npm run build:all
 
 - ESP32-C3 SuperMini
 - ESP32-C3 Dev Module
+- ESP32-C6 Dev Module (WiFi 6)
 - ESP32 Dev Module (Original ESP32)
 - ESP32-S3 Dev Module
+- ESP32-S3 Touch LCD (no PSRAM)
 - ESP32-S2 Dev Module
 - JC2432W328C (ESP32 with LCD/Touch)
 

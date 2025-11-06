@@ -155,9 +155,9 @@ void TimingCore::begin() {
   // Note: RSSI calibration will be done after debug mode is set
   
   // Create timing task with appropriate core pinning
-  // ESP32-C3 (single core): Use xTaskCreate (no core pinning)
+  // ESP32-C3/C6 (single core): Use xTaskCreate (no core pinning)
   // ESP32 dual-core: Pin to Core 1 (away from WiFi/Arduino on Core 0)
-#if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
   xTaskCreate(timingTask, "TimingTask", 4096, this, TIMING_PRIORITY, &timing_task_handle);
 #else
   xTaskCreatePinnedToCore(timingTask, "TimingTask", 4096, this, TIMING_PRIORITY, &timing_task_handle, 1);
@@ -1033,312 +1033,8 @@ void TimingCore::getRX5808Settings(uint8_t& band, uint8_t& channel) const {
 }
 
 
-void TimingCore::testSPIPins() {
-  Serial.println("\n=== RTC6715 Hardware Diagnostic ===");
-  Serial.println("Testing SPI pin connections...\n");
-  
-  // Test each pin independently
-  Serial.println("1. Testing DATA pin (should toggle HIGH/LOW):");
-  Serial.printf("   Pin %d: ", RX5808_DATA_PIN);
-  pinMode(RX5808_DATA_PIN, OUTPUT);
-  digitalWrite(RX5808_DATA_PIN, HIGH);
-  delay(100);
-  digitalWrite(RX5808_DATA_PIN, LOW);
-  Serial.println("Toggle sent (use oscilloscope/LED to verify)");
-  
-  Serial.println("\n2. Testing CLK pin (should toggle HIGH/LOW):");
-  Serial.printf("   Pin %d: ", RX5808_CLK_PIN);
-  pinMode(RX5808_CLK_PIN, OUTPUT);
-  digitalWrite(RX5808_CLK_PIN, HIGH);
-  delay(100);
-  digitalWrite(RX5808_CLK_PIN, LOW);
-  Serial.println("Toggle sent (use oscilloscope/LED to verify)");
-  
-  Serial.println("\n3. Testing SEL pin (should toggle HIGH/LOW):");
-  Serial.printf("   Pin %d: ", RX5808_SEL_PIN);
-  pinMode(RX5808_SEL_PIN, OUTPUT);
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  delay(100);
-  digitalWrite(RX5808_SEL_PIN, LOW);
-  delay(100);
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  Serial.println("Toggle sent (use oscilloscope/LED to verify)");
-  
-  Serial.println("\n4. Testing RSSI input pin:");
-  Serial.printf("   Pin %d (ADC): ", RSSI_INPUT_PIN);
-  pinMode(RSSI_INPUT_PIN, INPUT);
-  uint16_t adc_val = analogRead(RSSI_INPUT_PIN);
-  Serial.printf("Raw ADC = %d (should be 0-4095)\n", adc_val);
-  
-  Serial.println("\n5. Sending test SPI sequence to RTC6715:");
-  Serial.println("   Attempting to set frequency to 5800 MHz...");
-  setRX5808Frequency(5800);
-  
-  Serial.println("\n6. Reading RSSI after frequency set:");
-  delay(50);
-  adc_val = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi = (adc_val > 2047 ? 2047 : adc_val) >> 3;
-  Serial.printf("   RSSI = %d (0-255), ADC = %d\n", rssi, adc_val);
-  
-  Serial.println("\n=== Hardware Test Complete ===");
-  Serial.println("\nNEXT STEPS:");
-  Serial.println("1. If RSSI doesn't change between frequencies:");
-  Serial.println("   -> RTC6715 is in Channel Pin Mode (SPI_EN grounded)");
-  Serial.println("   -> Remove pull-down resistor from SPI_EN pin");
-  Serial.println("\n2. If all SPI pins toggle correctly:");
-  Serial.println("   -> Wiring is OK, issue is SPI_EN configuration");
-  Serial.println("\n3. If SPI pins don't toggle:");
-  Serial.println("   -> Check wiring from ESP32 to RTC6715");
-  Serial.println("   -> Verify no shorts or broken traces");
-  Serial.println("\nSee docs/RTC6715_TROUBLESHOOTING.md for detailed guide");
-  Serial.println("=====================================\n");
-}
-
-void TimingCore::testChannelPinMode() {
-  Serial.println("\n╔════════════════════════════════════════════════════════════════╗");
-  Serial.println("║          RTC6715 CHANNEL PIN MODE TEST                        ║");
-  Serial.println("╚════════════════════════════════════════════════════════════════╝\n");
-  
-  Serial.println("This test determines if RTC6715 is in Channel Pin Mode or SPI Mode");
-  Serial.println("by forcing pin states to select different channels.\n");
-  
-  // First, try to set frequency via SPI to something known
-  Serial.println("Step 1: Setting frequency to 5658 MHz via SPI...");
-  setRX5808Frequency(5658);
-  delay(50);
-  
-  uint16_t adc_spi = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi_spi = (adc_spi > 2047 ? 2047 : adc_spi) >> 3;
-  Serial.printf("   RSSI after SPI command: %d (ADC: %d)\n\n", rssi_spi, adc_spi);
-  
-  pinMode(RX5808_DATA_PIN, OUTPUT);
-  pinMode(RX5808_CLK_PIN, OUTPUT);
-  pinMode(RX5808_SEL_PIN, OUTPUT);
-  
-  // Test 1: All pins LOW
-  Serial.println("Step 2A: Setting all 3 pins LOW...");
-  Serial.println("   In Channel Pin Mode, this selects:");
-  Serial.println("   CH1=0, CH2=0, CH3=0 = binary 000 = Channel 0");
-  Serial.println("   Expected: 5865 MHz (Boscam A1)\n");
-  
-  digitalWrite(RX5808_DATA_PIN, LOW);   // CH1 = 0
-  digitalWrite(RX5808_CLK_PIN, LOW);    // CH3 = 0
-  digitalWrite(RX5808_SEL_PIN, LOW);    // CH2 = 0
-  
-  Serial.println("   All pins set LOW. Waiting for chip to respond...");
-  delay(100);  // Give chip time to respond if in Channel Pin Mode
-  
-  uint16_t adc_low = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi_low = (adc_low > 2047 ? 2047 : adc_low) >> 3;
-  Serial.printf("   RSSI with pins LOW: %d (ADC: %d)\n", rssi_low, adc_low);
-  Serial.println("   → If generator on 5865 MHz, RSSI should be high\n");
-  
-  // Test 2: All pins HIGH
-  Serial.println("Step 2B: Setting all 3 pins HIGH...");
-  Serial.println("   In Channel Pin Mode, this selects:");
-  Serial.println("   CH1=1, CH2=1, CH3=1 = binary 111 = Channel 7");
-  Serial.println("   Expected: 5725 MHz (Boscam A8)\n");
-  
-  digitalWrite(RX5808_DATA_PIN, HIGH);  // CH1 = 1
-  digitalWrite(RX5808_CLK_PIN, HIGH);   // CH3 = 1
-  digitalWrite(RX5808_SEL_PIN, HIGH);   // CH2 = 1
-  
-  Serial.println("   All pins set HIGH. Waiting for chip to respond...");
-  delay(100);  // Give chip time to respond if in Channel Pin Mode
-  
-  uint16_t adc_high = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi_high = (adc_high > 2047 ? 2047 : adc_high) >> 3;
-  Serial.printf("   RSSI with pins HIGH: %d (ADC: %d)\n", rssi_high, adc_high);
-  Serial.println("   → If generator on 5725 MHz, RSSI should be high\n");
-  
-  // Analyze results
-  Serial.println("═══════════════════════════════════════════════════════════════");
-  Serial.println("RESULT ANALYSIS:");
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  
-  // Calculate differences
-  int diff_low = abs(rssi_low - rssi_spi);
-  int diff_high = abs(rssi_high - rssi_spi);
-  int diff_between = abs(rssi_high - rssi_low);
-  
-  Serial.printf("SPI command (5658 MHz):  RSSI = %d\n", rssi_spi);
-  Serial.printf("Pins LOW (5865 MHz):     RSSI = %d  (diff from SPI: %d)\n", rssi_low, diff_low);
-  Serial.printf("Pins HIGH (5725 MHz):    RSSI = %d  (diff from SPI: %d)\n", rssi_high, diff_high);
-  Serial.printf("LOW vs HIGH difference:  %d\n\n", diff_between);
-  
-  // Determine if in channel pin mode
-  bool in_pin_mode = (diff_low > 15 || diff_high > 15 || diff_between > 15);
-  
-  if (in_pin_mode) {
-    Serial.println("❌ RSSI VARIES WITH PIN STATES!");
-    Serial.println("\nDIAGNOSIS: RTC6715 is in CHANNEL PIN MODE");
-    Serial.println("══════════════════════════════════════════════════════════════");
-    Serial.println("The chip is IGNORING SPI commands and using pin voltage");
-    Serial.println("levels to select channels.\n");
-    
-    Serial.println("CONFIRMED PROBLEMS:");
-    Serial.println("  ✗ SPI_EN pin is NOT at 3.3V (despite schematic)");
-    Serial.println("  ✗ All SPI commands from firmware are ignored");
-    Serial.println("  ✗ Frequency is controlled by CH1/CH2/CH3 pin states");
-    Serial.println("  ✗ This explains why freq changes don't work!\n");
-    
-    Serial.println("LIKELY CAUSES:");
-    Serial.println("  • Manufacturing defect (trace not connected)");
-    Serial.println("  • Cold solder joint on SPI_EN pin");
-    Serial.println("  • Wrong component variant (defaults to pin mode)");
-    Serial.println("  • PCB design error (schematic shows 3.3V but not routed)\n");
-    
-    Serial.println("IMMEDIATE ACTION REQUIRED:");
-    Serial.println("  1. Power off the board");
-    Serial.println("  2. Use multimeter to measure SPI_EN pin voltage");
-    Serial.println("     - Should read 3.3V (relative to GND)");
-    Serial.println("     - Likely reads 0V or floating");
-    Serial.println("  3. Check continuity from SPI_EN to 3.3V rail");
-    Serial.println("  4. Fix the connection:");
-    Serial.println("     a) Add jumper wire from SPI_EN to 3.3V");
-    Serial.println("     b) Or reflow solder if cold joint");
-    Serial.println("     c) Or fix broken trace under microscope\n");
-    
-    Serial.println("CHANNEL PIN MODE FREQUENCY TABLE:");
-    Serial.println("  000 (all LOW)  = 5865 MHz (A1)");
-    Serial.println("  001            = 5845 MHz (A2)");
-    Serial.println("  010            = 5825 MHz (A3)");
-    Serial.println("  011            = 5805 MHz (A4)");
-    Serial.println("  100            = 5785 MHz (A5)");
-    Serial.println("  101            = 5765 MHz (A6)");
-    Serial.println("  110            = 5745 MHz (A7)");
-    Serial.println("  111 (all HIGH) = 5725 MHz (A8)");
-    Serial.println("\n  Your board is likely floating at one of these frequencies");
-    Serial.println("  depending on pull-up/down resistors on CH1/CH2/CH3.\n");
-    
-  } else {
-    Serial.println("✓ RSSI STABLE REGARDLESS OF PIN STATES");
-    Serial.println("\nDIAGNOSIS: RTC6715 is in SPI MODE (Hardware correct!)");
-    Serial.println("══════════════════════════════════════════════════════════════");
-    Serial.println("The chip correctly ignores pin states and listens to SPI.\n");
-    
-    Serial.println("HARDWARE STATUS:");
-    Serial.println("  ✓ SPI_EN is at 3.3V (correct)");
-    Serial.println("  ✓ Chip is in SPI mode (correct)");
-    Serial.println("  ✓ Pin states are being ignored (correct)\n");
-    
-    Serial.println("But frequency changes still don't work, so the problem is:");
-    Serial.println("  ✗ Wrong SPI protocol or timing");
-    Serial.println("  ✗ Wrong frequency calculation formula");
-    Serial.println("  ✗ Wrong register layout");
-    Serial.println("  ✗ Missing initialization sequence\n");
-    
-    Serial.println("CHECK DATASHEET FOR:");
-    Serial.println("  1. Frequency formula - current uses: N=(f-479)/64, A=((f-479)%64)/2");
-    Serial.println("  2. Register layout - current uses 25-bit: 4-bit addr + 1 write + 16 data + 4 pad");
-    Serial.println("  3. Bit order - current sends LSB first");
-    Serial.println("  4. Initialization - check power-up sequence");
-    Serial.println("  5. SPI timing - current uses 300µs delays\n");
-  }
-  
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  
-  // Restore pins to normal SPI operation
-  Serial.println("Step 3: Restoring normal SPI operation...");
-  setupRX5808();
-  delay(100);
-  Serial.println("   Test complete. Pins restored.\n");
-}
-
-void TimingCore::testChannelPinModeLow() {
-  Serial.println("\n╔════════════════════════════════════════════════════════════════╗");
-  Serial.println("║       RTC6715 CHANNEL PIN MODE TEST - PINS LOW                ║");
-  Serial.println("╚════════════════════════════════════════════════════════════════╝\n");
-  
-  Serial.println("Testing with all pins LOW (forces 5865 MHz in pin mode)...\n");
-  
-  pinMode(RX5808_DATA_PIN, OUTPUT);
-  pinMode(RX5808_CLK_PIN, OUTPUT);
-  pinMode(RX5808_SEL_PIN, OUTPUT);
-  
-  digitalWrite(RX5808_DATA_PIN, LOW);   // CH1 = 0
-  digitalWrite(RX5808_CLK_PIN, LOW);    // CH3 = 0
-  digitalWrite(RX5808_SEL_PIN, LOW);    // CH2 = 0
-  
-  Serial.println("Pin States:");
-  Serial.println("  DATA (CH1) = LOW");
-  Serial.println("  CLK  (CH3) = LOW");
-  Serial.println("  SEL  (CH2) = LOW");
-  Serial.println("\nIn Channel Pin Mode: 000 = 5865 MHz (Boscam A1)");
-  Serial.println("In SPI Mode: Pins ignored, stays at SPI-programmed frequency\n");
-  
-  Serial.println("Waiting for chip to respond...");
-  delay(150);  // Give chip time to respond
-  
-  uint16_t adc_val = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi = (adc_val > 2047 ? 2047 : adc_val) >> 3;
-  
-  Serial.println("\n═══════════════════════════════════════════════════════════════");
-  Serial.println("RESULT:");
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  Serial.printf("RSSI = %d (ADC: %d)\n\n", rssi, adc_val);
-  
-  Serial.println("INTERPRETATION:");
-  Serial.println("  • If generator on 5865 MHz and RSSI is HIGH (>100):");
-  Serial.println("    → Chip is in CHANNEL PIN MODE ❌");
-  Serial.println("  • If generator on 5865 MHz and RSSI is LOW (<50):");
-  Serial.println("    → Chip is in SPI MODE ✓");
-  Serial.println("  • Test with different generator frequencies to confirm\n");
-  
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  
-  // Keep pins in this state - don't restore
-  Serial.println("Pins remain LOW. Change generator frequency to test.\n");
-}
-
-void TimingCore::testChannelPinModeHigh() {
-  Serial.println("\n╔════════════════════════════════════════════════════════════════╗");
-  Serial.println("║       RTC6715 CHANNEL PIN MODE TEST - PINS HIGH               ║");
-  Serial.println("╚════════════════════════════════════════════════════════════════╝\n");
-  
-  Serial.println("Testing with all pins HIGH (forces 5725 MHz in pin mode)...\n");
-  
-  pinMode(RX5808_DATA_PIN, OUTPUT);
-  pinMode(RX5808_CLK_PIN, OUTPUT);
-  pinMode(RX5808_SEL_PIN, OUTPUT);
-  
-  digitalWrite(RX5808_DATA_PIN, HIGH);  // CH1 = 1
-  digitalWrite(RX5808_CLK_PIN, HIGH);   // CH3 = 1
-  digitalWrite(RX5808_SEL_PIN, HIGH);   // CH2 = 1
-  
-  Serial.println("Pin States:");
-  Serial.println("  DATA (CH1) = HIGH");
-  Serial.println("  CLK  (CH3) = HIGH");
-  Serial.println("  SEL  (CH2) = HIGH");
-  Serial.println("\nIn Channel Pin Mode: 111 = 5725 MHz (Boscam A8)");
-  Serial.println("In SPI Mode: Pins ignored, stays at SPI-programmed frequency\n");
-  
-  Serial.println("Waiting for chip to respond...");
-  delay(150);  // Give chip time to respond
-  
-  uint16_t adc_val = analogRead(RSSI_INPUT_PIN);
-  uint8_t rssi = (adc_val > 2047 ? 2047 : adc_val) >> 3;
-  
-  Serial.println("\n═══════════════════════════════════════════════════════════════");
-  Serial.println("RESULT:");
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  Serial.printf("RSSI = %d (ADC: %d)\n\n", rssi, adc_val);
-  
-  Serial.println("INTERPRETATION:");
-  Serial.println("  • If generator on 5725 MHz and RSSI is HIGH (>100):");
-  Serial.println("    → Chip is in CHANNEL PIN MODE ❌");
-  Serial.println("  • If generator on 5725 MHz and RSSI is LOW (<50):");
-  Serial.println("    → Chip is in SPI MODE ✓");
-  Serial.println("  • Test with different generator frequencies to confirm\n");
-  
-  Serial.println("═══════════════════════════════════════════════════════════════\n");
-  
-  // Keep pins in this state - don't restore
-  Serial.println("Pins remain HIGH. Change generator frequency to test.\n");
-}
-
 // ============================================================================
-// DMA ADC Implementation for ESP32-C3
+// DMA ADC Implementation
 // ============================================================================
 
 void TimingCore::setupADC_DMA() {
@@ -1373,16 +1069,29 @@ void TimingCore::setupADC_DMA() {
   }
   
   // Configure ADC pattern (which channels to sample)
-  // Determine correct ADC channel based on RSSI_INPUT_PIN
+  // Dynamically determine ADC channel from RSSI_INPUT_PIN (defined in config.h)
   adc_channel_t adc_channel;
-  #if defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
-    adc_channel = ADC_CHANNEL_3;     // GPIO3 = ADC1_CH3 on ESP32-C3
-  #elif defined(BOARD_JC2432W328C)
-    adc_channel = ADC_CHANNEL_7;     // GPIO35 = ADC1_CH7 on JC2432W328C
-  #else
-    // ESP32-WROOM uses GPIO34 = ADC1_CH6
-    adc_channel = ADC_CHANNEL_6;     // GPIO34 = ADC1_CH6 on ESP32
-  #endif
+  adc_unit_t adc_unit;
+  
+  // Convert GPIO pin to ADC channel using ESP-IDF helper
+  esp_err_t adc_err = adc_continuous_io_to_channel(RSSI_INPUT_PIN, &adc_unit, &adc_channel);
+  if (adc_err != ESP_OK || adc_unit != ADC_UNIT_1) {
+    if (debug_enabled) {
+      Serial.printf("ERROR: GPIO%d is not a valid ADC1 pin (err 0x%x), falling back to polled ADC\n", 
+                    RSSI_INPUT_PIN, adc_err);
+    }
+    use_dma = false;
+    adc_continuous_deinit(adc_handle);
+    free(dma_result_buffer);
+    dma_result_buffer = nullptr;
+    adc_handle = nullptr;
+    analogSetAttenuation(ADC_11db);
+    return;
+  }
+  
+  if (debug_enabled) {
+    Serial.printf("ADC: GPIO%d mapped to ADC1_CH%d\n", RSSI_INPUT_PIN, adc_channel);
+  }
   
   adc_digi_pattern_config_t adc_pattern = {
     .atten = ADC_ATTEN_DB_12,        // 0-3.3V range (was ADC_ATTEN_DB_11, now deprecated)
@@ -1391,12 +1100,19 @@ void TimingCore::setupADC_DMA() {
     .bit_width = ADC_BITWIDTH_12,    // 12-bit resolution
   };
   
+  // ESP32-C6 requires TYPE2 format, older chips use TYPE1
+  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+    adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
+  #else
+    adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE1;
+  #endif
+  
   adc_continuous_config_t dig_cfg = {
     .pattern_num = 1,
     .adc_pattern = &adc_pattern,
     .sample_freq_hz = DMA_SAMPLE_RATE,
     .conv_mode = ADC_CONV_SINGLE_UNIT_1,
-    .format = ADC_DIGI_OUTPUT_FORMAT_TYPE1,
+    .format = adc_format,
   };
   
   ret = adc_continuous_config(adc_handle, &dig_cfg);

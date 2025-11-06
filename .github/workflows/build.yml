@@ -37,8 +37,10 @@ jobs:
         environment:
           - esp32-c3-supermini
           - esp32-c3
+          - esp32-c6
           - esp32dev
           - esp32-s3
+          - esp32-s3-touch
           - esp32-s2
           - jc2432w328c
     
@@ -146,7 +148,7 @@ jobs:
     - name: Create release package
       run: |
         cd all-firmware
-        for env in esp32-c3-supermini esp32-c3 esp32dev esp32-s3 esp32-s2 jc2432w328c; do
+        for env in esp32-c3-supermini esp32-c3 esp32-c6 esp32dev esp32-s3 esp32-s3-touch esp32-s2 jc2432w328c; do
           if [ -d "firmware-$env" ]; then
             cd "firmware-$env"
             zip -r "../StarForge-${env}.zip" .
