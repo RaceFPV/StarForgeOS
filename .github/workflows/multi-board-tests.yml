@@ -44,7 +44,7 @@ jobs:
           echo "Build successful for ESP32-C3"
       
       - name: Upload ESP32-C3 Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-c3
           path: StarForgeOS/.pio/build/esp32-c3-supermini/firmware.bin
@@ -86,7 +86,7 @@ jobs:
           echo "Build successful for ESP32-C6"
       
       - name: Upload ESP32-C6 Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-c6
           path: StarForgeOS/.pio/build/esp32-c6/firmware.bin
@@ -128,7 +128,7 @@ jobs:
           echo "Build successful for ESP32"
       
       - name: Upload ESP32 Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32
           path: StarForgeOS/.pio/build/esp32dev/firmware.bin
@@ -170,7 +170,7 @@ jobs:
           echo "Build successful for ESP32-S2"
       
       - name: Upload ESP32-S2 Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s2
           path: StarForgeOS/.pio/build/esp32-s2/firmware.bin
@@ -212,7 +212,7 @@ jobs:
           echo "Build successful for ESP32-S3"
       
       - name: Upload ESP32-S3 Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s3
           path: StarForgeOS/.pio/build/esp32-s3/firmware.bin
@@ -254,7 +254,7 @@ jobs:
           echo "Build successful for ESP32-S3-Touch"
       
       - name: Upload ESP32-S3-Touch Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s3-touch
           path: StarForgeOS/.pio/build/esp32-s3-touch/firmware.bin
@@ -296,7 +296,7 @@ jobs:
           echo "Build successful for JC2432W328C"
       
       - name: Upload JC2432W328C Firmware
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-jc2432w328c
           path: StarForgeOS/.pio/build/jc2432w328c/firmware.bin
