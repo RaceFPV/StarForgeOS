@@ -5,6 +5,19 @@
 #include "node_mode.h"
 #include <WiFi.h>
 
+// Compile-time board detection verification
+#if defined(BOARD_ESP32_S3_TOUCH)
+    #pragma message "BUILD: Waveshare ESP32-S3-Touch-LCD-2 detected"
+#elif defined(BOARD_JC2432W328C)
+    #pragma message "BUILD: JC2432W328C detected"
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+    #pragma message "BUILD: ESP32-C6 detected"
+#elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+    #pragma message "BUILD: ESP32-C3 detected"
+#else
+    #pragma message "BUILD: Generic ESP32 detected"
+#endif
+
 // Global firmware version strings (for compatibility with RotorHazard server)
 const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32_1.0.0";
 const char *firmwareBuildDateString = "FIRMWARE_BUILDDATE: " __DATE__;
@@ -70,6 +83,19 @@ void setup() {
   // This prevents boot messages from being misinterpreted as protocol responses
   delay(300);
   
+  // Debug: Print board configuration
+  Serial.println("\n=== BOARD CONFIGURATION ===");
+  #if defined(BOARD_ESP32_S3_TOUCH)
+    Serial.println("Board: Waveshare ESP32-S3-Touch-LCD-2");
+    Serial.printf("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
+    Serial.printf("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
+  #elif defined(BOARD_JC2432W328C)
+    Serial.println("Board: JC2432W328C");
+  #else
+    Serial.println("Board: Generic ESP32");
+  #endif
+  Serial.println("===========================\n");
+  
 #if ENABLE_LCD_UI
   // Touch board: Mode is controlled via touchscreen button, not physical pin
   // ALWAYS start in standalone mode on boot (LCD/WiFi mode)
@@ -112,7 +138,7 @@ void setup() {
   // Configure deep sleep wake-up on power button press (active LOW)
   esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON_PIN, 0);  // Wake when pin goes LOW
   
-  Serial.println("Power button enabled on pin 22 (long press = sleep)");
+  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", POWER_BUTTON_PIN);
 #endif
   
   // Set debug mode based on current mode

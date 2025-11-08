@@ -7,7 +7,14 @@
 
 #include <Arduino.h>
 #include <lvgl.h>
-#include <TFT_eSPI.h>
+
+// Conditional display library includes
+#if defined(BOARD_ESP32_S3_TOUCH)
+    #include <Arduino_GFX_Library.h>
+#else
+    #include <TFT_eSPI.h>
+#endif
+
 #include "timing_core.h"
 
 // Forward declaration of CST820 class
@@ -43,8 +50,13 @@ public:
     static void uiTask(void* parameter);
     
 private:
-    // Display and touch objects
-    TFT_eSPI* tft;
+    // Display and touch objects (conditional based on board)
+    #if defined(BOARD_ESP32_S3_TOUCH)
+        Arduino_DataBus* bus;
+        Arduino_GFX* gfx;
+    #else
+        TFT_eSPI* tft;
+    #endif
     CST820* touch;
     TimingCore* _timingCore;  // For accessing RX5808 settings
     
@@ -77,7 +89,11 @@ private:
     
     // RSSI graph rate limiting
     unsigned long _lastGraphUpdate;
-    static const unsigned long GRAPH_UPDATE_INTERVAL = 150;  // Update graph every 150ms
+    static const unsigned long GRAPH_UPDATE_INTERVAL = 250;  // Update graph every 250ms (~4Hz, smoother scrolling)
+    
+    // Scroll state tracking (to pause updates during scrolling)
+    unsigned long _lastScrollTime;
+    static const unsigned long SCROLL_SETTLE_TIME = 500;  // Wait 500ms after scroll before resuming updates
     
     // Screen dimming (power saving)
     unsigned long _lastTouchTime;
@@ -93,9 +109,16 @@ private:
     
     // LVGL display buffer
     static lv_disp_draw_buf_t draw_buf;
-    static lv_color_t buf[240 * 60];  // 60 lines buffer
     static lv_disp_drv_t disp_drv;
     static lv_indev_drv_t indev_drv;
+    
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // ESP32-S3: Use dynamically allocated buffer in PSRAM (full screen for smooth scrolling)
+    static lv_color_t* buf;
+#else
+    // Other boards: Use static buffer (60 lines)
+    static lv_color_t buf[240 * 60];
+#endif
     
     // Static callbacks for LVGL
     static void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);

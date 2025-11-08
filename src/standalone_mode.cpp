@@ -34,7 +34,13 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     
     // Set attenuation specifically for this pin (ADC1)
     analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);  // 0-3.3V range
-    analogSetWidth(12);  // 12-bit resolution (0-4095)
+    
+    // Set ADC resolution (ESP32-S3 uses analogReadResolution instead of analogSetWidth)
+    #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_ESP32S3_DEV)
+        analogReadResolution(12);  // 12-bit resolution (0-4095) for ESP32-S3
+    #else
+        analogSetWidth(12);  // 12-bit resolution (0-4095) for ESP32
+    #endif
 #endif
 
 #if ENABLE_AUDIO
@@ -138,11 +144,12 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         // Create LCD UI task
         // ESP32 dual-core: Pin to Core 0 (with WiFi/web, low priority)
         // ESP32-C3/C6 (single core): No core pinning
+        // Stack increased to 8KB for LVGL with full-screen rendering
 #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
-        xTaskCreate(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
+        xTaskCreate(LcdUI::uiTask, "LcdUI", 8192, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
         Serial.println("LCD UI task created");
 #else
-        xTaskCreatePinnedToCore(LcdUI::uiTask, "LcdUI", 4096, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle, 0);
+        xTaskCreatePinnedToCore(LcdUI::uiTask, "LcdUI", 8192, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle, 0);
         Serial.println("LCD UI task created on Core 0");
 #endif
     } else {
@@ -568,10 +575,11 @@ float StandaloneMode::readBatteryVoltage() {
     uint16_t adc_value = adc_sum / successful_reads;
     
     // Convert ADC reading to voltage
-    // ESP32 ADC: 0-4095 = 0-3.3V (but typically use 0-2.45V for accuracy)
-    // Account for voltage divider
-    float adc_voltage = (adc_value / 4095.0) * 3.3;
-    float battery_voltage = adc_voltage * BATTERY_VOLTAGE_DIVIDER;
+    // With ADC_11db attenuation: 0-4095 maps to approximately 0-3.6V (not 3.3V!)
+    // ESP32 ADC is non-linear, but for basic monitoring, use empirical calibration
+    // More accurate than assuming 3.3V reference
+    float adc_voltage = (adc_value / 4095.0) * 3.6;  // ADC_11db gives ~3.6V range
+    float battery_voltage = adc_voltage * BATTERY_VOLTAGE_DIVIDER * BATTERY_ADC_CALIBRATION;
     
     return battery_voltage;
 }

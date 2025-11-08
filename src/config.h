@@ -19,6 +19,19 @@
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
     #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
+#elif defined(BOARD_ESP32_S3_TOUCH)
+    // Waveshare ESP32-S3-Touch-LCD-2 with 2" ST7789T3 LCD (240x320) and CST816D touch
+    // Pin configuration verified from official Waveshare demo code
+    // Display uses: 1 (BL), 38 (MOSI), 39 (SCLK), 40 (MISO), 42 (DC), 45 (CS)
+    // Touch I2C uses: 47 (SCL), 48 (SDA)
+    // Available GPIOs: 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 35, 36, 37, 41, 43, 44, 46
+    #define RSSI_INPUT_PIN      4     // GPIO4 (ADC1_CH3) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     17    // GPIO17 - DATA to RX5808
+    #define RX5808_CLK_PIN      18    // GPIO18 - CLK to RX5808
+    #define RX5808_SEL_PIN      21    // GPIO21 - LE (Latch Enable) to RX5808
+    #define MODE_SWITCH_PIN     0     // GPIO0 - Boot button (IGNORED - use LCD button for mode)
+    #define POWER_BUTTON_PIN    0     // GPIO0 - Boot button (long press = deep sleep)
+    #define UART_BAUD_RATE      921600  // USB CDC for serial communication
 #elif defined(BOARD_JC2432W328C)
     // JC2432W328C - ESP32-D0WD-V3 with ST7789 LCD (240x320) and CST820 touch
     // This board has a unique pin layout for the integrated display
@@ -95,41 +108,73 @@
 
 // LCD/Touchscreen configuration
 // LCD UI is only available on boards with integrated displays
-#if defined(BOARD_JC2432W328C)
-    #define ENABLE_LCD_UI   1     // JC2432W328C has integrated ST7789 LCD + CST820 touch
+#if defined(BOARD_JC2432W328C) || defined(BOARD_ESP32_S3_TOUCH)
+    #define ENABLE_LCD_UI   1     // JC2432W328C and ESP32-S3-Touch have integrated displays
 #else
     #define ENABLE_LCD_UI   0     // No LCD by default on other boards
 #endif
 
 #if ENABLE_LCD_UI
     #define LCD_PRIORITY    1     // Low priority for LCD updates (below timing & web)
-    #define LCD_I2C_SDA     33    // Touch I2C SDA pin
-    #define LCD_I2C_SCL     32    // Touch I2C SCL pin
-    #define LCD_TOUCH_RST   25    // Touch reset pin
-    #define LCD_TOUCH_INT   21    // Touch interrupt pin
-    #define LCD_BACKLIGHT   27    // Backlight control pin
     
-    // Audio configuration (built-in DAC amplifier on JC2432W328C)
+    // Board-specific LCD/Touch pin definitions
+    #if defined(BOARD_ESP32_S3_TOUCH)
+        // Waveshare ESP32-S3-Touch-LCD-2 pin definitions (verified from official demo)
+        // CST816D capacitive touch controller (I2C)
+        #define LCD_I2C_SDA     48    // Touch I2C SDA pin
+        #define LCD_I2C_SCL     47    // Touch I2C SCL pin
+        #define LCD_TOUCH_RST   -1    // Touch reset pin (not used on this board)
+        #define LCD_TOUCH_INT   -1    // Touch interrupt pin (not used in demo)
+        #define LCD_BACKLIGHT   1     // Backlight control pin (GPIO1)
+        #define BATTERY_ADC_PIN 5     // GPIO5 (ADC1_CH4) - Battery monitoring (onboard 3:1 divider)
+    #elif defined(BOARD_JC2432W328C)
+        // JC2432W328C pin definitions (ESP32-D0WD-V3)
+        #define LCD_I2C_SDA     33    // Touch I2C SDA pin
+        #define LCD_I2C_SCL     32    // Touch I2C SCL pin
+        #define LCD_TOUCH_RST   25    // Touch reset pin
+        #define LCD_TOUCH_INT   21    // Touch interrupt pin
+        #define LCD_BACKLIGHT   27    // Backlight control pin
+        #define BATTERY_ADC_PIN 34    // GPIO34 (ADC1_CH6) - repurposed from light sensor
+    #endif
+    
+    // Audio configuration (built-in DAC amplifier on some boards)
     // NOTE: TTS libraries conflict with ADC driver (both legacy and driver_ng)
     // Pre-recorded audio would work, but simple beeps are sufficient
-    #define ENABLE_AUDIO    1     // Enable audio beeps for lap detection
-    #define AUDIO_DAC_PIN   26    // GPIO26 (DAC channel) - connected to built-in amplifier
+    // ESP32-S3 does NOT have a built-in DAC, so audio is disabled for those boards
+    #if defined(BOARD_JC2432W328C)
+        #define ENABLE_AUDIO    1     // Enable audio beeps for lap detection (ESP32 has DAC)
+        #define AUDIO_DAC_PIN   26    // GPIO26 (DAC channel) - connected to built-in amplifier
+    #elif defined(BOARD_ESP32_S3_TOUCH)
+        #define ENABLE_AUDIO    0     // Disable audio (ESP32-S3 has no built-in DAC)
+        #define AUDIO_DAC_PIN   -1    // Not used
+    #else
+        #define ENABLE_AUDIO    1     // Enable by default for other ESP32 boards
+        #define AUDIO_DAC_PIN   26    // GPIO26 (DAC channel)
+    #endif
     #define BEEP_DURATION_MS 100  // Beep duration in milliseconds
     
     // Battery monitoring configuration for 1S LiPo (3.0V - 4.2V)
-    // Uses GPIO34 (ADC1_CH6) - originally used for light sensor, repurposed for battery
-    // Note: GPIO34 is input-only, perfect for ADC use, works with WiFi active
-    // Circuit: Battery+ -> 100kΩ -> GPIO34 -> 100kΩ -> GND + 100nF cap to GND (recommended)
-    // With 2:1 divider: 4.2V battery -> 2.1V at ADC (safe for ESP32's 3.3V max)
+    // BATTERY_ADC_PIN is defined per-board above
     #define ENABLE_BATTERY_MONITOR  1     // Enabled for 1S LiPo with voltage divider
-    #define BATTERY_ADC_PIN         34    // GPIO34 (ADC1_CH6) - light sensor pin (repurposed)
-    #define BATTERY_VOLTAGE_DIVIDER 2.0   // 2:1 voltage divider (100kΩ + 100kΩ resistors)
-    #define BATTERY_MIN_VOLTAGE     3.0   // 1S LiPo minimum (empty)
-    #define BATTERY_MAX_VOLTAGE     4.2   // 1S LiPo maximum (full charge)
+    #if defined(BOARD_ESP32_S3_TOUCH)
+        // Waveshare ESP32-S3: Onboard 3:1 voltage divider (verified from demo)
+        #define BATTERY_VOLTAGE_DIVIDER 3.0   // 3:1 voltage divider onboard
+        #define BATTERY_ADC_CALIBRATION 1.0   // ADC calibration factor (tune if needed)
+        #define BATTERY_MIN_VOLTAGE     3.0   // 1S LiPo minimum (empty)
+        #define BATTERY_MAX_VOLTAGE     4.2   // 1S LiPo maximum (full charge)
+    #else
+        // JC2432W328C and others: External 2:1 voltage divider
+        // Circuit: Battery+ -> 100kΩ -> GPIO -> 100kΩ -> GND + 100nF cap to GND
+        #define BATTERY_VOLTAGE_DIVIDER 2.0   // 2:1 voltage divider (100kΩ + 100kΩ resistors)
+        #define BATTERY_ADC_CALIBRATION 1.0   // ADC calibration factor (tune if needed)
+        #define BATTERY_MIN_VOLTAGE     3.0   // 1S LiPo minimum (empty)
+        #define BATTERY_MAX_VOLTAGE     4.2   // 1S LiPo maximum (full charge)
+    #endif
     #define BATTERY_SAMPLES         10    // Number of ADC samples to average for stability
     
-    // Power button configuration (for JC2432W328C with repurposed pin 22)
-    // Hardware: Connect momentary push button between GPIO22 and GND
+    // Power button configuration
+    // POWER_BUTTON_PIN is defined per-board in the hardware section above
+    // Hardware: Connect momentary push button between GPIO and GND
     // The internal pullup resistor will be enabled, so button press = LOW signal
     // Long press (3 seconds) enters deep sleep mode
     // Press button again to wake from sleep (ESP32 will reset/reboot)

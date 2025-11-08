@@ -3,6 +3,8 @@
 #if ENABLE_LCD_UI
 
 #include "CST820.h"
+#include <FS.h>
+#include <SPIFFS.h>
 
 // Forward declaration of OperationMode enum from main.cpp
 enum OperationMode {
@@ -13,11 +15,24 @@ enum OperationMode {
 // Static member initialization
 LcdUI* LcdUI::_instance = nullptr;
 lv_disp_draw_buf_t LcdUI::draw_buf;
-lv_color_t LcdUI::buf[240 * 60];
 lv_disp_drv_t LcdUI::disp_drv;
 lv_indev_drv_t LcdUI::indev_drv;
 
-LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // ESP32-S3: Dynamically allocated buffer (initialized in begin())
+    lv_color_t* LcdUI::buf = nullptr;
+#else
+    // Other boards: Static buffer
+    lv_color_t LcdUI::buf[240 * 60];
+#endif
+
+LcdUI::LcdUI() : 
+#if defined(BOARD_ESP32_S3_TOUCH)
+                 bus(nullptr), gfx(nullptr),
+#else
+                 tft(nullptr),
+#endif
+                 touch(nullptr), _timingCore(nullptr),
                  rssi_label(nullptr), rssi_chart(nullptr), rssi_series(nullptr),
                  lap_count_label(nullptr), status_label(nullptr),
                  battery_label(nullptr), battery_icon(nullptr),
@@ -26,12 +41,17 @@ LcdUI::LcdUI() : tft(nullptr), touch(nullptr), _timingCore(nullptr),
                  brightness_slider(nullptr), brightness_label(nullptr),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
                  _settingsChangedCallback(nullptr),
-                 _lastGraphUpdate(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
+                 _lastGraphUpdate(0), _lastScrollTime(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
     _instance = this;
 }
 
 LcdUI::~LcdUI() {
+#if defined(BOARD_ESP32_S3_TOUCH)
+    if (gfx) delete gfx;
+    if (bus) delete bus;
+#else
     if (tft) delete tft;
+#endif
     if (touch) delete touch;
     _instance = nullptr;
 }
@@ -41,18 +61,46 @@ bool LcdUI::begin() {
     Serial.println("LCD UI: Initializing");
     Serial.println("====================================\n");
     
-    // Initialize backlight (pin 27 on JC2432W328C)
+    // Initialize backlight
     pinMode(LCD_BACKLIGHT, OUTPUT);
     digitalWrite(LCD_BACKLIGHT, LOW);  // Turn off first
     Serial.println("LCD: Backlight OFF (initializing)");
     
-    // Initialize display
-    Serial.println("LCD: Initializing TFT...");
+    // Initialize display (board-specific)
+    Serial.println("LCD: Initializing display...");
+    
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Waveshare ESP32-S3-Touch-LCD-2: Use Arduino_GFX with SPI2
+    // Configuration matches official Waveshare demo
+    Serial.println("LCD: Using Arduino_GFX for ESP32-S3");
+    
+    // Create SPI data bus (DC, CS, SCK, MOSI, MISO, SPI_NUM, isSPI_Mode)
+    bus = new Arduino_ESP32SPI(42 /* DC */, 45 /* CS */, 39 /* SCK */, 38 /* MOSI */, 40 /* MISO */, FSPI /* spi_num */, true);
+    
+    // Create ST7789 display driver (bus, RST, rotation, IPS, width, height)
+    // rotation=0 for portrait (matching UI layout), IPS=true for correct colors
+    gfx = new Arduino_ST7789(bus, -1 /* RST */, 0 /* rotation */, true /* IPS */, 240 /* width */, 320 /* height */);
+    
+    // Initialize display (no invertDisplay, no special config - just like demo)
+    if (!gfx->begin()) {
+        Serial.println("ERROR: gfx->begin() failed!");
+        return false;
+    }
+    
+    gfx->fillScreen(BLACK);
+    Serial.println("LCD: Arduino_GFX initialized");
+    
+#else
+    // JC2432W328C and other boards: Use TFT_eSPI
+    Serial.println("LCD: Using TFT_eSPI");
+    
     tft = new TFT_eSPI();
     tft->begin();
     tft->setRotation(0);  // Portrait
-    // tft->initDMA();  // DMA disabled - causes issues with LVGL double buffering
-    Serial.println("LCD: TFT initialized");
+    tft->fillScreen(TFT_BLACK);
+    Serial.println("LCD: TFT_eSPI initialized");
+    
+#endif
     
     // Turn on backlight AFTER display init (use PWM for brightness control)
     pinMode(LCD_BACKLIGHT, OUTPUT);
@@ -71,8 +119,29 @@ bool LcdUI::begin() {
     Serial.println("LCD: Initializing LVGL...");
     lv_init();
     
-    // Initialize LVGL display buffer
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // ESP32-S3: Allocate full screen buffer in PSRAM for smooth scrolling (240x320 = 76,800 pixels)
+    uint32_t bufSize = 240 * 320;
+    buf = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        // Fallback to internal RAM if PSRAM allocation fails
+        Serial.println("LCD: PSRAM allocation failed, trying internal RAM...");
+        buf = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
+    if (!buf) {
+        Serial.println("ERROR: Failed to allocate LVGL display buffer!");
+        return false;
+    }
+    Serial.printf("LCD: Allocated %d KB buffer in %s\n", 
+                  (bufSize * sizeof(lv_color_t)) / 1024,
+                  heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > (bufSize * sizeof(lv_color_t)) ? "PSRAM" : "Internal RAM");
+    
+    // Initialize LVGL display buffer (full screen for smooth performance)
+    lv_disp_draw_buf_init(&draw_buf, buf, NULL, bufSize);
+#else
+    // Other boards: Use smaller buffer (60 lines)
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, 240 * 60);
+#endif
     
     // Initialize display driver
     lv_disp_drv_init(&disp_drv);
@@ -80,6 +149,10 @@ bool LcdUI::begin() {
     disp_drv.ver_res = 320;
     disp_drv.flush_cb = my_disp_flush;
     disp_drv.draw_buf = &draw_buf;
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Enable direct mode for full-screen buffer (LVGL renders directly, we copy once)
+    disp_drv.direct_mode = true;
+#endif
     lv_disp_drv_register(&disp_drv);
     
     Serial.println("LCD: LVGL display registered");
@@ -104,8 +177,10 @@ bool LcdUI::begin() {
     Serial.println("LCD UI: Setup complete!");
     Serial.println("====================================\n");
     
-    // Keep SPI transaction open for LVGL (factory example - enables DMA optimization)
+#if !defined(BOARD_ESP32_S3_TOUCH)
+    // Keep SPI transaction open for LVGL (TFT_eSPI optimization - not needed for Arduino_GFX)
     tft->startWrite();
+#endif
     
     return true;
 }
@@ -119,7 +194,10 @@ void LcdUI::createUI() {
     lv_obj_set_scroll_dir(scr, LV_DIR_VER);  // Enable vertical scrolling
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_size(scr, 240, 320);  // Physical screen size
-    lv_obj_set_content_height(scr, 780);  // Content is taller than screen - enables scrolling (increased for mode button)
+    lv_obj_set_content_height(scr, 870);  // Increased for taller brightness panel
+    
+    // Disable elastic/bounce effect at top and bottom of scroll
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_ELASTIC);
     
     // === RSSI DISPLAY (Big box at top) ===
     lv_obj_t *rssi_box = lv_obj_create(scr);
@@ -300,12 +378,12 @@ void LcdUI::createUI() {
     
     // Band selector (A/B/E/F/R/L)
     lv_obj_t *band_box = lv_obj_create(scr);
-    lv_obj_set_size(band_box, 220, 70);
+    lv_obj_set_size(band_box, 220, 78);  // Increased height for better button spacing
     lv_obj_set_pos(band_box, 10, 427);  // Adjusted position
     lv_obj_set_style_bg_color(band_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(band_box, 1, 0);
     lv_obj_set_style_border_color(band_box, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_pad_all(band_box, 5, 0);
+    lv_obj_set_style_pad_all(band_box, 8, 0);  // Increased padding for better spacing
     lv_obj_clear_flag(band_box, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *band_title = lv_label_create(band_box);
@@ -340,12 +418,12 @@ void LcdUI::createUI() {
     
     // Channel selector (1-8)
     lv_obj_t *channel_box = lv_obj_create(scr);
-    lv_obj_set_size(channel_box, 220, 70);
-    lv_obj_set_pos(channel_box, 10, 507);  // Adjusted position
+    lv_obj_set_size(channel_box, 220, 78);  // Increased height for better button spacing
+    lv_obj_set_pos(channel_box, 10, 515);  // Adjusted position (427 + 78 + 10 gap)
     lv_obj_set_style_bg_color(channel_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(channel_box, 1, 0);
     lv_obj_set_style_border_color(channel_box, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_pad_all(channel_box, 5, 0);
+    lv_obj_set_style_pad_all(channel_box, 8, 0);  // Increased padding for better spacing
     lv_obj_clear_flag(channel_box, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *channel_title = lv_label_create(channel_box);
@@ -380,11 +458,12 @@ void LcdUI::createUI() {
     
     // Frequency display (read-only, updates based on band/channel)
     lv_obj_t *freq_box = lv_obj_create(scr);
-    lv_obj_set_size(freq_box, 220, 45);
-    lv_obj_set_pos(freq_box, 10, 587);  // Adjusted position
+    lv_obj_set_size(freq_box, 220, 55);  // Increased height for better spacing
+    lv_obj_set_pos(freq_box, 10, 603);  // Adjusted position (515 + 78 + 10 gap)
     lv_obj_set_style_bg_color(freq_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(freq_box, 1, 0);
     lv_obj_set_style_border_color(freq_box, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(freq_box, 8, 0);  // Added padding for consistency
     lv_obj_clear_flag(freq_box, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *freq_title = lv_label_create(freq_box);
@@ -401,12 +480,12 @@ void LcdUI::createUI() {
     
     // Threshold adjustment
     lv_obj_t *threshold_box = lv_obj_create(scr);
-    lv_obj_set_size(threshold_box, 220, 70);
-    lv_obj_set_pos(threshold_box, 10, 642);  // Adjusted position
+    lv_obj_set_size(threshold_box, 220, 78);  // Increased height for better button spacing
+    lv_obj_set_pos(threshold_box, 10, 668);  // Adjusted position (603 + 55 + 10 gap)
     lv_obj_set_style_bg_color(threshold_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(threshold_box, 1, 0);
     lv_obj_set_style_border_color(threshold_box, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_pad_all(threshold_box, 5, 0);
+    lv_obj_set_style_pad_all(threshold_box, 8, 0);  // Increased padding for better spacing
     lv_obj_clear_flag(threshold_box, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *threshold_title = lv_label_create(threshold_box);
@@ -441,11 +520,12 @@ void LcdUI::createUI() {
     
     // Brightness slider (at bottom of settings)
     lv_obj_t* brightness_box = lv_obj_create(scr);
-    lv_obj_set_size(brightness_box, 220, 80);
-    lv_obj_set_pos(brightness_box, 10, 722);  // Adjusted position (642 + 70 + 10 margin)
+    lv_obj_set_size(brightness_box, 220, 90);  // Increased height for better spacing
+    lv_obj_set_pos(brightness_box, 10, 756);  // Adjusted position (668 + 78 + 10 gap)
     lv_obj_set_style_bg_color(brightness_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(brightness_box, 0, 0);
     lv_obj_set_style_radius(brightness_box, 8, 0);
+    lv_obj_set_style_pad_all(brightness_box, 8, 0);  // Added padding for consistency
     lv_obj_clear_flag(brightness_box, LV_OBJ_FLAG_SCROLLABLE);  // Disable scrollbars on container
     
     lv_obj_t* brightness_title = lv_label_create(brightness_box);
@@ -478,21 +558,25 @@ void LcdUI::createUI() {
 
 // Update functions (called from standalone mode)
 void LcdUI::updateRSSI(uint8_t rssi) {
-    // Always update the numeric label (instant feedback)
+    // Throttle RSSI updates to prevent overwhelming LVGL during scrolling
+    // Update at same rate as graph (every 150ms) to prevent race conditions
+    unsigned long now = millis();
+    if (now - _lastGraphUpdate < GRAPH_UPDATE_INTERVAL) {
+        return;  // Too soon, skip update
+    }
+    _lastGraphUpdate = now;
+    
+    // Update the numeric label
     if (rssi_label) {
         char buf[8];
         snprintf(buf, sizeof(buf), "%d", rssi);
         lv_label_set_text(rssi_label, buf);
     }
     
-    // Update graph at a slower rate (every 150ms) for readability
+    // Update graph
     if (rssi_chart && rssi_series) {
-        unsigned long now = millis();
-        if (now - _lastGraphUpdate >= GRAPH_UPDATE_INTERVAL) {
-            lv_chart_set_next_value(rssi_chart, rssi_series, rssi);
-            lv_chart_refresh(rssi_chart);
-            _lastGraphUpdate = now;
-        }
+        lv_chart_set_next_value(rssi_chart, rssi_series, rssi);
+        lv_chart_refresh(rssi_chart);
     }
 }
 
@@ -758,15 +842,22 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
 }
 
 
-// LVGL display flush callback (DMA with wait to prevent artifacts)
+// LVGL display flush callback (works with both TFT_eSPI and Arduino_GFX)
 void LcdUI::my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
-    if (!_instance || !_instance->tft) return;
+    if (!_instance) return;
     
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
-    // Use pushImage without DMA (simpler, no artifacts)
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Arduino_GFX version with BGR color order (ST7789 on Waveshare uses BGR)
+    if (!_instance->gfx) return;
+    _instance->gfx->draw16bitBeRGBBitmap(area->x1, area->y1, (uint16_t *)color_p, w, h);
+#else
+    // TFT_eSPI version
+    if (!_instance->tft) return;
     _instance->tft->pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
+#endif
 
     lv_disp_flush_ready(disp);
 }
@@ -778,6 +869,19 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
         return;
     }
     
+    // Throttle touch reads to prevent overwhelming LVGL during fast scrolling
+    // This prevents use-after-free crashes when scrolling rapidly
+    static unsigned long last_touch_read = 0;
+    static lv_indev_data_t last_data = {0};  // Cache last state
+    unsigned long now = millis();
+    
+    if (now - last_touch_read < 10) {  // Minimum 10ms between reads (~100Hz, more responsive)
+        // Too soon, return cached state to avoid flooding LVGL
+        *data = last_data;
+        return;
+    }
+    last_touch_read = now;
+    
     uint16_t touchX, touchY;
     uint8_t gesture;
     
@@ -788,11 +892,17 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
         data->point.x = touchX;
         data->point.y = touchY;
         
+        // Track scroll time to pause RSSI updates during scrolling
+        _instance->_lastScrollTime = now;
+        
         // Wake screen on touch
         _instance->wakeScreen();
     } else {
         data->state = LV_INDEV_STATE_REL;
     }
+    
+    // Cache state for throttled calls
+    last_data = *data;
 }
 
 // UI task (runs in separate FreeRTOS task)
@@ -807,7 +917,9 @@ void LcdUI::uiTask(void* parameter) {
             _instance->updateScreenBrightness();
         }
         
-        vTaskDelay(pdMS_TO_TICKS(5));  // 5ms delay = ~200Hz update rate
+        // 5ms delay to prevent race conditions in LVGL (not thread-safe)
+        // Longer delay = more stable during rapid scrolling, still 200Hz update rate
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
