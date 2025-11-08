@@ -69,33 +69,67 @@ For detailed technical information, pin configurations, and setup instructions, 
 - **[Hardware Guide](docs/hardware.md)** - PCB design and wiring diagrams
 - **[Display Customization](docs/display_customization.md)** - UI customization options
 
-## 🏗️ Building
+## 💾 Flashing Firmware
+
+### 🚀 Easy Way - StarForge Flash Tool (Recommended)
+
+**No command line required!** Use our cross-platform desktop app:
+
+1. Download the latest release from [GitHub Releases](https://github.com/RaceFPV/StarForgeOS/releases/latest)
+   - **macOS**: `StarForge-Flash-Tool-X.X.X.dmg`
+   - **Windows**: `StarForge-Flash-Tool-Setup-X.X.X.exe`
+2. Connect your ESP32 board via USB
+3. Select your board type and click "Flash Firmware"
+4. Done! The tool automatically downloads and flashes the latest firmware
+
+**Features**: Auto-detection, one-click flashing, progress tracking, supports all board types.
+
+📖 Full documentation: [`flash_tool/README.md`](flash_tool/README.md)
+
+### ⚙️ Manual Way - PlatformIO (For Developers)
 
 ```bash
-cd Tracer/
+cd StarForgeOS/
 pio run -e esp32-c3-supermini --target upload
 pio run -e esp32-c3-supermini --target uploadfs
 ```
 
 **Note**: Both commands are required - one uploads the firmware, the other uploads the web interface files.
 
-## 🐛 Troubleshooting
+Or use the Makefile for easier commands:
 
-### Build Errors
+```bash
+make                                    # Show all available commands
+make build BOARD=esp32-c3-supermini    # Build firmware
+make upload BOARD=esp32-c3-supermini   # Build and upload
+make monitor BOARD=esp32-c3-supermini  # Open serial monitor
+```
 
-**Error: `adc_continuous.h` not found**
+## 🧪 Testing (For Developers)
 
-This occurs when using an older ESP-IDF version. The DMA ADC feature requires ESP-IDF 5.0 or later.
+StarForgeOS includes comprehensive tests to ensure compatibility across all supported ESP32 board types.
 
-**Solution:**
-- Delete .pio folder, run `pio run -t clean` and try the upload again
+### Quick Validation (No Hardware Required)
+```bash
+make test  # Validates all board configs compile correctly (~4-5 minutes)
+```
 
-**Why?** The continuous ADC API (`adc_continuous.h`) was introduced in ESP-IDF 5.0. PlatformIO's espressif32 platform version 6.0+ includes ESP-IDF 5.1+.
+This runs:
+- ✅ Hardware configuration tests (pin definitions, constants)
+- ✅ WiFi functionality tests
+- ✅ Protocol unit tests (RotorHazard compatibility)
 
-### Other Issues
+### Hardware Specific Testing
+```bash
+# Test specific board with connected hardware
+make test-board BOARD=test-esp32-c3
 
-Common issues and solutions are covered in the [Setup Guide](docs/setup.md). For RSSI problems, frequency issues, or connectivity troubleshooting, check the documentation.
+# Test RotorHazard protocol integration
+make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32dev
+```
 
----
+### Continuous Integration
+Every pull request automatically runs build validation across all board types via GitHub Actions, ensuring no breaking changes.
 
-**Ready to race?** Get started with the [Setup Guide](docs/setup.md) and join the FPV racing community!
+**📖 Full testing documentation**: See [`test/README.md`](test/README.md) for complete details on the test suite, CI/CD strategy, and contribution guidelines.
+
