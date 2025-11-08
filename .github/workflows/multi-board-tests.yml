@@ -34,11 +34,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32-C3
-        working-directory: ./StarForgeOS
         run: pio run -e esp32-c3-supermini
       
       - name: Run Tests for ESP32-C3
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32-c3 --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32-C3"
@@ -47,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-c3
-          path: StarForgeOS/.pio/build/esp32-c3-supermini/firmware.bin
+          path: .pio/build/esp32-c3-supermini/firmware.bin
           retention-days: 30
 
   # Build and test for ESP32-C6
@@ -76,11 +75,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32-C6
-        working-directory: ./StarForgeOS
         run: pio run -e esp32-c6
       
       - name: Run Tests for ESP32-C6
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32-c6 --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32-C6"
@@ -89,7 +87,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-c6
-          path: StarForgeOS/.pio/build/esp32-c6/firmware.bin
+          path: .pio/build/esp32-c6/firmware.bin
           retention-days: 30
 
   # Build and test for Generic ESP32
@@ -118,11 +116,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32
-        working-directory: ./StarForgeOS
         run: pio run -e esp32dev
       
       - name: Run Tests for ESP32
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32 --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32"
@@ -131,7 +128,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32
-          path: StarForgeOS/.pio/build/esp32dev/firmware.bin
+          path: .pio/build/esp32dev/firmware.bin
           retention-days: 30
 
   # Build and test for ESP32-S2
@@ -160,11 +157,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32-S2
-        working-directory: ./StarForgeOS
         run: pio run -e esp32-s2
       
       - name: Run Tests for ESP32-S2
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32-s2 --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32-S2"
@@ -173,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s2
-          path: StarForgeOS/.pio/build/esp32-s2/firmware.bin
+          path: .pio/build/esp32-s2/firmware.bin
           retention-days: 30
 
   # Build and test for ESP32-S3
@@ -202,11 +198,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32-S3
-        working-directory: ./StarForgeOS
         run: pio run -e esp32-s3
       
       - name: Run Tests for ESP32-S3
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32-s3 --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32-S3"
@@ -215,7 +210,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s3
-          path: StarForgeOS/.pio/build/esp32-s3/firmware.bin
+          path: .pio/build/esp32-s3/firmware.bin
           retention-days: 30
 
   # Build and test for ESP32-S3-Touch (Waveshare)
@@ -244,11 +239,10 @@ jobs:
           pip install platformio
       
       - name: Build for ESP32-S3-Touch
-        working-directory: ./StarForgeOS
         run: pio run -e esp32-s3-touch
       
       - name: Run Tests for ESP32-S3-Touch
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-esp32-s3-touch --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for ESP32-S3-Touch"
@@ -257,7 +251,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32-s3-touch
-          path: StarForgeOS/.pio/build/esp32-s3-touch/firmware.bin
+          path: .pio/build/esp32-s3-touch/firmware.bin
           retention-days: 30
 
   # Build and test for JC2432W328C
@@ -286,11 +280,10 @@ jobs:
           pip install platformio
       
       - name: Build for JC2432W328C
-        working-directory: ./StarForgeOS
         run: pio run -e jc2432w328c
       
       - name: Run Tests for JC2432W328C
-        working-directory: ./StarForgeOS/test
+        working-directory: ./test
         run: |
           pio test -e test-jc2432w328c --without-uploading --without-testing || echo "Tests cannot run without hardware"
           echo "Build successful for JC2432W328C"
@@ -299,7 +292,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-jc2432w328c
-          path: StarForgeOS/.pio/build/jc2432w328c/firmware.bin
+          path: .pio/build/jc2432w328c/firmware.bin
           retention-days: 30
 
   # Generate test report summary
