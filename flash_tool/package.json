@@ -59,7 +59,9 @@
       {
         "from": "resources/bin/",
         "to": "resources/bin/",
-        "filter": ["esptool-*"]
+        "filter": [
+          "esptool-*"
+        ]
       }
     ],
     "directories": {
@@ -68,4 +70,3 @@
     }
   }
 }
-

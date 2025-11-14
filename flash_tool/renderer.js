@@ -399,11 +399,7 @@ function getCustomPinConfig() {
       rx5808_data: parseInt(document.getElementById('pin-data').value) || 6,
       rx5808_clk: parseInt(document.getElementById('pin-clk').value) || 4,
       rx5808_sel: parseInt(document.getElementById('pin-sel').value) || 7,
-      mode_switch: parseInt(document.getElementById('pin-mode').value) || 1,
-      power_button: parseInt(document.getElementById('pin-power').value) || 0,
-      battery_adc: parseInt(document.getElementById('pin-battery').value) || 0,
-      audio_dac: parseInt(document.getElementById('pin-audio').value) || 0,
-      usb_detect: parseInt(document.getElementById('pin-usb-detect').value) || 0
+      mode_switch: parseInt(document.getElementById('pin-mode').value) || 1
     }
   };
 }
