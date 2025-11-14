@@ -1,4 +1,5 @@
 #include "timing_core.h"
+#include "config_globals.h"
 #include <SPI.h>
 #include "esp_adc/adc_continuous.h"
 #include "soc/soc_caps.h"
@@ -110,7 +111,7 @@ void TimingCore::begin() {
   }
   
   // Setup pins
-  pinMode(RSSI_INPUT_PIN, INPUT);
+  pinMode(g_rssi_input_pin, INPUT);
   
   // Setup DMA ADC or fall back to polled ADC
   if (use_dma) {
@@ -130,9 +131,9 @@ void TimingCore::begin() {
   }
   
   // Test ADC reading immediately
-  uint16_t test_adc = analogRead(RSSI_INPUT_PIN);
+  uint16_t test_adc = analogRead(g_rssi_input_pin);
   if (debug_enabled) {
-    Serial.printf("ADC test reading on pin %d: %d (raw 12-bit)\n", RSSI_INPUT_PIN, test_adc);
+    Serial.printf("ADC test reading on pin %d: %d (raw 12-bit)\n", g_rssi_input_pin, test_adc);
     uint16_t clamped = (test_adc > 2047) ? 2047 : test_adc;
     uint8_t final_rssi = clamped >> 3;
     Serial.printf("Clamped: %d, Final RSSI: %d (0-255 range)\n", clamped, final_rssi);
@@ -218,7 +219,7 @@ void TimingCore::timingTask(void* parameter) {
       // Debug output every 1000 iterations (about once per second) - only in debug mode
       debug_counter++;
       if (debug_counter % 1000 == 0 && core->debug_enabled) {
-        uint16_t raw_adc = analogRead(RSSI_INPUT_PIN);
+        uint16_t raw_adc = analogRead(g_rssi_input_pin);
         uint16_t clamped = (raw_adc > 2047) ? 2047 : raw_adc;
         Serial.printf("[TimingTask] Mode: %s, ADC: %d, Clamped: %d, RSSI: %d, Threshold: %d, Crossing: %s, FreqStable: %s\n", 
                       core->use_dma ? "DMA" : "POLLED",
@@ -350,7 +351,7 @@ uint8_t TimingCore::readRawRSSI() {
   }
   
   // Read 12-bit ADC value (0-4095 on ESP32)
-  uint16_t adc_value = analogRead(RSSI_INPUT_PIN);
+  uint16_t adc_value = analogRead(g_rssi_input_pin);
   
   // RX5808 RSSI typically outputs 0-2V (not full 0-3.3V range)
   // Clamp to 2047 (half of 12-bit range = ~2V @ 3.3V reference)
@@ -572,19 +573,19 @@ void TimingCore::setupRX5808() {
   }
   
   // Initialize SPI pins
-  pinMode(RX5808_DATA_PIN, OUTPUT);
-  pinMode(RX5808_CLK_PIN, OUTPUT);
-  pinMode(RX5808_SEL_PIN, OUTPUT);
+  pinMode(g_rx5808_data_pin, OUTPUT);
+  pinMode(g_rx5808_clk_pin, OUTPUT);
+  pinMode(g_rx5808_sel_pin, OUTPUT);
   
   if (debug_enabled) {
     Serial.printf("RX5808 pins - DATA: %d, CLK: %d, SEL: %d\n", 
-                  RX5808_DATA_PIN, RX5808_CLK_PIN, RX5808_SEL_PIN);
+                  g_rx5808_data_pin, g_rx5808_clk_pin, g_rx5808_sel_pin);
   }
   
   // Set initial states
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  digitalWrite(RX5808_CLK_PIN, LOW);
-  digitalWrite(RX5808_DATA_PIN, LOW);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
+  digitalWrite(g_rx5808_clk_pin, LOW);
+  digitalWrite(g_rx5808_data_pin, LOW);
   
   delay(100); // Allow module to stabilize
   
@@ -627,7 +628,7 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     Serial.printf("\n=== RTC6715 Frequency Change ===\n");
     Serial.printf("Target: %d MHz (tf=%d, N=%d, A=%d, reg=0x%04X)\n", 
                   freq_mhz, tf, N, A, vtxHex);
-    Serial.printf("Pins: DATA=%d, CLK=%d, SEL=%d\n", RX5808_DATA_PIN, RX5808_CLK_PIN, RX5808_SEL_PIN);
+    Serial.printf("Pins: DATA=%d, CLK=%d, SEL=%d\n", g_rx5808_data_pin, g_rx5808_clk_pin, g_rx5808_sel_pin);
   }
   
   // Send frequency to RX5808 using standard 25-bit protocol:
@@ -640,8 +641,8 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     Serial.print("Sending bits: ");
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  digitalWrite(RX5808_SEL_PIN, LOW);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
+  digitalWrite(g_rx5808_sel_pin, LOW);
   
   // Register 0x1 (frequency register)
   sendRX5808Bit(1);  // bit 0
@@ -682,11 +683,11 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     Serial.println(" 0000");  // Padding
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
   delay(2);
   
-  digitalWrite(RX5808_CLK_PIN, LOW);
-  digitalWrite(RX5808_DATA_PIN, LOW);
+  digitalWrite(g_rx5808_clk_pin, LOW);
+  digitalWrite(g_rx5808_data_pin, LOW);
   
   state.frequency_mhz = freq_mhz;
   
@@ -702,7 +703,7 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
     
     // Wait for tuning, then read RSSI to verify
     delay(RX5808_MIN_TUNETIME + 10);
-    uint16_t test_adc = analogRead(RSSI_INPUT_PIN);
+    uint16_t test_adc = analogRead(g_rssi_input_pin);
     uint8_t test_rssi = (test_adc > 2047 ? 2047 : test_adc) >> 3;
     Serial.printf("RSSI after freq change: %d (ADC: %d)\n", test_rssi, test_adc);
     Serial.printf("If RSSI doesn't change between frequencies, check SPI_EN pin!\n");
@@ -713,13 +714,13 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
 void TimingCore::sendRX5808Bit(uint8_t bit_value) {
   // Send a single bit to RX5808 using standard SPI-like protocol
   // 300µs delays ensure reliable communication with the module
-  digitalWrite(RX5808_DATA_PIN, bit_value ? HIGH : LOW);
+  digitalWrite(g_rx5808_data_pin, bit_value ? HIGH : LOW);
   delayMicroseconds(300);
   
-  digitalWrite(RX5808_CLK_PIN, HIGH);
+  digitalWrite(g_rx5808_clk_pin, HIGH);
   delayMicroseconds(300);
   
-  digitalWrite(RX5808_CLK_PIN, LOW);
+  digitalWrite(g_rx5808_clk_pin, LOW);
   delayMicroseconds(300);
 }
 
@@ -730,8 +731,8 @@ void TimingCore::resetRX5808Module() {
     Serial.println("Resetting RX5808 module (register 0xF)...");
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  digitalWrite(RX5808_SEL_PIN, LOW);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
+  digitalWrite(g_rx5808_sel_pin, LOW);
   
   // Register 0xF (reset register) = 1111
   sendRX5808Bit(1);
@@ -747,7 +748,7 @@ void TimingCore::resetRX5808Module() {
     sendRX5808Bit(0);
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
   delay(10);
   
   if (debug_enabled) {
@@ -763,8 +764,8 @@ void TimingCore::configureRX5808Power() {
     Serial.println("Configuring RX5808 power (register 0xA)...");
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
-  digitalWrite(RX5808_SEL_PIN, LOW);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
+  digitalWrite(g_rx5808_sel_pin, LOW);
   
   // Register 0xA (power register) = 1010
   sendRX5808Bit(0);
@@ -781,10 +782,10 @@ void TimingCore::configureRX5808Power() {
     sendRX5808Bit((power_config >> i) & 0x1);
   }
   
-  digitalWrite(RX5808_SEL_PIN, HIGH);
+  digitalWrite(g_rx5808_sel_pin, HIGH);
   delay(10);
   
-  digitalWrite(RX5808_DATA_PIN, LOW);
+  digitalWrite(g_rx5808_data_pin, LOW);
   
   if (debug_enabled) {
     Serial.println("RX5808 power configuration complete");
@@ -1069,16 +1070,16 @@ void TimingCore::setupADC_DMA() {
   }
   
   // Configure ADC pattern (which channels to sample)
-  // Dynamically determine ADC channel from RSSI_INPUT_PIN (defined in config.h)
+  // Dynamically determine ADC channel from g_rssi_input_pin (can be from config.h or config.json)
   adc_channel_t adc_channel;
   adc_unit_t adc_unit;
   
   // Convert GPIO pin to ADC channel using ESP-IDF helper
-  esp_err_t adc_err = adc_continuous_io_to_channel(RSSI_INPUT_PIN, &adc_unit, &adc_channel);
+  esp_err_t adc_err = adc_continuous_io_to_channel(g_rssi_input_pin, &adc_unit, &adc_channel);
   if (adc_err != ESP_OK || adc_unit != ADC_UNIT_1) {
     if (debug_enabled) {
       Serial.printf("ERROR: GPIO%d is not a valid ADC1 pin (err 0x%x), falling back to polled ADC\n", 
-                    RSSI_INPUT_PIN, adc_err);
+                    g_rssi_input_pin, adc_err);
     }
     use_dma = false;
     adc_continuous_deinit(adc_handle);
@@ -1090,7 +1091,7 @@ void TimingCore::setupADC_DMA() {
   }
   
   if (debug_enabled) {
-    Serial.printf("ADC: GPIO%d mapped to ADC1_CH%d\n", RSSI_INPUT_PIN, adc_channel);
+    Serial.printf("ADC: GPIO%d mapped to ADC1_CH%d\n", g_rssi_input_pin, adc_channel);
   }
   
   adc_digi_pattern_config_t adc_pattern = {
@@ -1146,7 +1147,7 @@ void TimingCore::setupADC_DMA() {
   
   if (debug_enabled) {
     Serial.println("DMA ADC started successfully - continuous sampling");
-    Serial.printf("  Channel: ADC1_CH%d (GPIO%d)\n", adc_channel, RSSI_INPUT_PIN);
+    Serial.printf("  Channel: ADC1_CH%d (GPIO%d)\n", adc_channel, g_rssi_input_pin);
     Serial.printf("  Sample rate: %d Hz\n", DMA_SAMPLE_RATE);
     Serial.printf("  Buffer size: %d samples\n", DMA_BUFFER_SIZE);
     Serial.println("  CPU overhead: ~0% (hardware DMA)");

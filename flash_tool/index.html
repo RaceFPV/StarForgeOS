@@ -463,6 +463,122 @@
       border-color: #ff7b00;
       box-shadow: 0 0 10px rgba(255, 123, 0, 0.3);
     }
+
+    /* Advanced Configuration Section */
+    .advanced-header {
+      padding: 15px;
+      background: linear-gradient(145deg, #2a3550 0%, #1f2535 100%);
+      border: 2px solid #2a3550;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s;
+      font-weight: 700;
+      color: #8b9dc3;
+      text-transform: uppercase;
+      font-size: 13px;
+      letter-spacing: 1px;
+    }
+
+    .advanced-header:hover {
+      background: linear-gradient(145deg, #3a4560 0%, #2a3550 100%);
+      border-color: #ff7b00;
+      color: #ff7b00;
+    }
+
+    .toggle-icon {
+      transition: transform 0.3s;
+      font-size: 12px;
+    }
+
+    .toggle-icon.open {
+      transform: rotate(180deg);
+    }
+
+    .advanced-body {
+      margin-top: 10px;
+      border: 2px solid #2a3550;
+      border-radius: 6px;
+      background: linear-gradient(145deg, #0f1419 0%, #1a1f35 100%);
+      overflow: hidden;
+    }
+
+    .advanced-content {
+      padding: 20px;
+    }
+
+    .pin-group {
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #2a3550;
+    }
+
+    .pin-group:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+
+    .pin-group h4 {
+      color: #ff7b00;
+      font-size: 14px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .pin-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .pin-input {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .pin-input label {
+      font-size: 11px;
+      color: #8b9dc3;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+
+    .pin-input input {
+      padding: 8px 10px;
+      background: #1a1f35;
+      border: 2px solid #2a3550;
+      border-radius: 4px;
+      color: #e0e6ed;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .pin-input input:focus {
+      outline: none;
+      border-color: #ff7b00;
+      box-shadow: 0 0 5px rgba(255, 123, 0, 0.3);
+    }
+
+    .warning-box {
+      margin-top: 15px;
+      padding: 15px;
+      background: linear-gradient(145deg, #3d1a1a 0%, #2a0f0f 100%);
+      border: 2px solid #ff5555;
+      border-radius: 6px;
+      color: #ffaaaa;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .warning-box strong {
+      color: #ff5555;
+    }
   </style>
 </head>
 <body>
@@ -516,6 +632,94 @@
         <div class="file-input-group">
           <input type="text" id="folder-path" readonly placeholder="No folder selected">
           <button class="btn-secondary" onclick="selectLocalFolder()">Browse</button>
+        </div>
+      </div>
+
+      <!-- Advanced Configuration Section (Collapsible) -->
+      <div class="form-group">
+        <div class="advanced-header" onclick="toggleAdvancedConfig()">
+          <span>⚙️ Advanced Configuration (Optional - Custom Pins)</span>
+          <span id="advanced-toggle" class="toggle-icon">▼</span>
+        </div>
+        <div id="advanced-config-body" class="advanced-body" style="display: none;">
+          <div class="advanced-content">
+            <div class="form-group" style="margin-bottom: 15px;">
+              <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="enable-custom-pins" onchange="toggleCustomPins()" style="width: auto; margin-right: 10px;">
+                <span>Enable Custom Pin Configuration</span>
+              </label>
+              <p class="help-text">Override default pins from config.h (for custom boards)</p>
+            </div>
+
+            <div id="custom-pins-section" style="display: none;">
+              <!-- Pin Presets -->
+              <div class="form-group">
+                <label>Load Pin Profile</label>
+                <select id="pin-preset" onchange="loadPinPreset()">
+                  <option value="">-- Select Preset --</option>
+                  <option value="esp32c3-default">ESP32-C3 SuperMini (Default)</option>
+                  <option value="esp32c6-default">ESP32-C6 (Default)</option>
+                  <option value="esp32-default">ESP32 Generic (Default)</option>
+                </select>
+              </div>
+
+              <!-- Core Pins -->
+              <div class="pin-group">
+                <h4>Core Pins (Required)</h4>
+                <div class="pin-grid">
+                  <div class="pin-input">
+                    <label>RSSI Input (ADC):</label>
+                    <input type="number" id="pin-rssi" min="0" max="48" value="3" />
+                  </div>
+                  <div class="pin-input">
+                    <label>RX5808 Data (MOSI):</label>
+                    <input type="number" id="pin-data" min="0" max="48" value="6" />
+                  </div>
+                  <div class="pin-input">
+                    <label>RX5808 Clock (SCK):</label>
+                    <input type="number" id="pin-clk" min="0" max="48" value="4" />
+                  </div>
+                  <div class="pin-input">
+                    <label>RX5808 Select (CS):</label>
+                    <input type="number" id="pin-sel" min="0" max="48" value="7" />
+                  </div>
+                  <div class="pin-input">
+                    <label>Mode Switch:</label>
+                    <input type="number" id="pin-mode" min="0" max="48" value="1" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Optional Pins -->
+              <div class="pin-group">
+                <h4>Optional Pins (LCD Boards)</h4>
+                <div class="pin-grid">
+                  <div class="pin-input">
+                    <label>Power Button:</label>
+                    <input type="number" id="pin-power" min="0" max="48" value="0" placeholder="0 = unused" />
+                  </div>
+                  <div class="pin-input">
+                    <label>Battery ADC:</label>
+                    <input type="number" id="pin-battery" min="0" max="48" value="0" placeholder="0 = unused" />
+                  </div>
+                  <div class="pin-input">
+                    <label>Audio DAC:</label>
+                    <input type="number" id="pin-audio" min="0" max="48" value="0" placeholder="0 = unused" />
+                  </div>
+                  <div class="pin-input">
+                    <label>USB Detect (D+):</label>
+                    <input type="number" id="pin-usb-detect" min="0" max="48" value="0" placeholder="0 = unused" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Warning Message -->
+              <div class="warning-box">
+                <strong>⚠️ Warning:</strong> Incorrect pin assignments can damage your board or prevent it from booting. 
+                Double-check your board's pinout before flashing. You can always flash again with this disabled to revert to defaults.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

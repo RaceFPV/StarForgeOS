@@ -2,6 +2,7 @@
 
 #if ENABLE_LCD_UI
 
+#include "config_globals.h"
 #include "CST820.h"
 #include <FS.h>
 #include <SPIFFS.h>
@@ -62,8 +63,8 @@ bool LcdUI::begin() {
     Serial.println("====================================\n");
     
     // Initialize backlight
-    pinMode(LCD_BACKLIGHT, OUTPUT);
-    digitalWrite(LCD_BACKLIGHT, LOW);  // Turn off first
+    pinMode(g_lcd_backlight, OUTPUT);
+    digitalWrite(g_lcd_backlight, LOW);  // Turn off first
     Serial.println("LCD: Backlight OFF (initializing)");
     
     // Initialize display (board-specific)
@@ -103,14 +104,14 @@ bool LcdUI::begin() {
 #endif
     
     // Turn on backlight AFTER display init (use PWM for brightness control)
-    pinMode(LCD_BACKLIGHT, OUTPUT);
+    pinMode(g_lcd_backlight, OUTPUT);
     
     // Load user brightness preference from SPIFFS
     loadBrightnessFromSPIFFS();
     
     // Convert percentage (10-100%) to PWM value (25-255)
     uint8_t pwm_value = map(_userBrightness, 10, 100, 25, 255);
-    analogWrite(LCD_BACKLIGHT, pwm_value);
+    analogWrite(g_lcd_backlight, pwm_value);
     Serial.printf("LCD: Backlight ON (%d%% brightness)\n", _userBrightness);
     _lastTouchTime = millis();  // Initialize touch timer
     _screenDimmed = false;
@@ -159,7 +160,7 @@ bool LcdUI::begin() {
     
     // Initialize touch
     Serial.println("LCD: Initializing CST820 touch...");
-    touch = new CST820(LCD_I2C_SDA, LCD_I2C_SCL, LCD_TOUCH_RST, LCD_TOUCH_INT);
+    touch = new CST820(g_lcd_i2c_sda, g_lcd_i2c_scl, LCD_TOUCH_RST, LCD_TOUCH_INT);
     touch->begin();
     
     lv_indev_drv_init(&indev_drv);
@@ -652,16 +653,22 @@ void LcdUI::updateThreshold(uint8_t threshold) {
     }
 }
 
-void LcdUI::updateBattery(float voltage, uint8_t percentage) {
-    // Update percentage text
+void LcdUI::updateBattery(float voltage, uint8_t percentage, bool isCharging) {
+    // Update percentage text with charging indicator
     if (battery_label) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%d%%", percentage);
+        char buf[12];
+        if (isCharging) {
+            snprintf(buf, sizeof(buf), "%d%%+", percentage);  // + symbol for charging
+        } else {
+            snprintf(buf, sizeof(buf), "%d%%", percentage);
+        }
         lv_label_set_text(battery_label, buf);
         
-        // Color code based on battery level
+        // Color code based on battery level (cyan when charging)
         uint32_t color;
-        if (percentage > 60) {
+        if (isCharging) {
+            color = 0x00ffff;  // Cyan (charging)
+        } else if (percentage > 60) {
             color = 0x00ff00;  // Green (good)
         } else if (percentage > 20) {
             color = 0xffaa00;  // Orange (warning)
@@ -678,9 +685,11 @@ void LcdUI::updateBattery(float voltage, uint8_t percentage) {
         if (width < 3) width = 3;  // Minimum visible width
         lv_obj_set_width(battery_icon, width);
         
-        // Color code the icon
+        // Color code the icon (cyan when charging)
         uint32_t color;
-        if (percentage > 60) {
+        if (isCharging) {
+            color = 0x00ffff;  // Cyan (charging)
+        } else if (percentage > 60) {
             color = 0x00ff00;  // Green
         } else if (percentage > 20) {
             color = 0xffaa00;  // Orange
@@ -931,7 +940,7 @@ void LcdUI::updateScreenBrightness() {
     // Check if we should dim the screen
     if (!_screenDimmed && timeSinceTouch >= SCREEN_DIM_TIMEOUT) {
         // Time to dim
-        analogWrite(LCD_BACKLIGHT, SCREEN_DIM_BRIGHTNESS);
+        analogWrite(g_lcd_backlight, SCREEN_DIM_BRIGHTNESS);
         _screenDimmed = true;
         Serial.println("LCD: Screen dimmed (power save)");
     }
@@ -959,7 +968,7 @@ void LcdUI::setBrightness(uint8_t percent) {
     
     // Convert percentage (10-100%) to PWM value (25-255)
     uint8_t pwm_value = map(percent, 10, 100, 25, 255);
-    analogWrite(LCD_BACKLIGHT, pwm_value);
+    analogWrite(g_lcd_backlight, pwm_value);
 }
 
 // Load brightness from SPIFFS

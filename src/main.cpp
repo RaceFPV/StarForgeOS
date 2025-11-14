@@ -1,9 +1,11 @@
 #include <Arduino.h>
 #include "config.h"
+#include "config_loader.h"
 #include "timing_core.h"
 #include "standalone_mode.h"
 #include "node_mode.h"
 #include <WiFi.h>
+#include <SPIFFS.h>
 
 // Compile-time board detection verification
 #if defined(BOARD_ESP32_S3_TOUCH)
@@ -23,6 +25,36 @@ const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32_1.0.0";
 const char *firmwareBuildDateString = "FIRMWARE_BUILDDATE: " __DATE__;
 const char *firmwareBuildTimeString = "FIRMWARE_BUILDTIME: " __TIME__;
 const char *firmwareProcTypeString = "FIRMWARE_PROCTYPE: ESP32";
+
+// Global pin configuration (can be overridden by config.json on SPIFFS)
+// These are initialized from config.h defaults, then potentially overridden at boot
+uint8_t g_rssi_input_pin = RSSI_INPUT_PIN;
+uint8_t g_rx5808_data_pin = RX5808_DATA_PIN;
+uint8_t g_rx5808_clk_pin = RX5808_CLK_PIN;
+uint8_t g_rx5808_sel_pin = RX5808_SEL_PIN;
+uint8_t g_mode_switch_pin = MODE_SWITCH_PIN;
+
+#if ENABLE_POWER_BUTTON
+uint8_t g_power_button_pin = POWER_BUTTON_PIN;
+#endif
+
+#if ENABLE_BATTERY_MONITOR
+uint8_t g_battery_adc_pin = BATTERY_ADC_PIN;
+#endif
+
+#if ENABLE_AUDIO
+uint8_t g_audio_dac_pin = AUDIO_DAC_PIN;
+#endif
+
+#if defined(USB_DETECT_PIN)
+uint8_t g_usb_detect_pin = USB_DETECT_PIN;
+#endif
+
+#if ENABLE_LCD_UI
+int8_t g_lcd_i2c_sda = LCD_I2C_SDA;
+int8_t g_lcd_i2c_scl = LCD_I2C_SCL;
+int8_t g_lcd_backlight = LCD_BACKLIGHT;
+#endif
 
 // Global objects
 TimingCore timing;
@@ -83,6 +115,58 @@ void setup() {
   // This prevents boot messages from being misinterpreted as protocol responses
   delay(300);
   
+  // Load custom pin configuration from SPIFFS (if available)
+  // This must happen BEFORE any pins are used or modes are initialized
+  CustomPinConfig customConfig;
+  if (ConfigLoader::loadCustomConfig(&customConfig)) {
+    // Override pins with custom values from config.json
+    g_rssi_input_pin = customConfig.rssi_input_pin;
+    g_rx5808_data_pin = customConfig.rx5808_data_pin;
+    g_rx5808_clk_pin = customConfig.rx5808_clk_pin;
+    g_rx5808_sel_pin = customConfig.rx5808_sel_pin;
+    g_mode_switch_pin = customConfig.mode_switch_pin;
+    
+    #if ENABLE_POWER_BUTTON
+    if (customConfig.power_button_pin > 0) {
+      g_power_button_pin = customConfig.power_button_pin;
+    }
+    #endif
+    
+    #if ENABLE_BATTERY_MONITOR
+    if (customConfig.battery_adc_pin > 0) {
+      g_battery_adc_pin = customConfig.battery_adc_pin;
+    }
+    #endif
+    
+    #if ENABLE_AUDIO
+    if (customConfig.audio_dac_pin > 0) {
+      g_audio_dac_pin = customConfig.audio_dac_pin;
+    }
+    #endif
+    
+    #if defined(USB_DETECT_PIN)
+    if (customConfig.usb_detect_pin > 0) {
+      g_usb_detect_pin = customConfig.usb_detect_pin;
+    }
+    #endif
+    
+    #if ENABLE_LCD_UI
+    if (customConfig.lcd_i2c_sda >= 0) {
+      g_lcd_i2c_sda = customConfig.lcd_i2c_sda;
+    }
+    if (customConfig.lcd_i2c_scl >= 0) {
+      g_lcd_i2c_scl = customConfig.lcd_i2c_scl;
+    }
+    if (customConfig.lcd_backlight >= 0) {
+      g_lcd_backlight = customConfig.lcd_backlight;
+    }
+    #endif
+    
+    Serial.println("Using custom pin configuration from /config.json");
+  } else {
+    Serial.println("Using default pin configuration from config.h");
+  }
+  
   // Debug: Print board configuration
   Serial.println("\n=== BOARD CONFIGURATION ===");
   #if defined(BOARD_ESP32_S3_TOUCH)
@@ -107,11 +191,11 @@ void setup() {
   Serial.println("Defaulting to STANDALONE mode (user can switch via LCD button)");
 #else
   // Non-touch boards: Initialize mode selection pin (LOW=Standalone, HIGH/floating=RotorHazard)
-  pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
+  pinMode(g_mode_switch_pin, INPUT_PULLUP);
   
   // Determine initial mode BEFORE any serial output
   // LOW (GND) = Standalone mode, HIGH (floating/pullup) = RotorHazard mode
-  bool initial_switch_state = digitalRead(MODE_SWITCH_PIN);
+  bool initial_switch_state = digitalRead(g_mode_switch_pin);
   current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
 #endif
   
@@ -133,12 +217,12 @@ void setup() {
   
 #if ENABLE_POWER_BUTTON
   // Initialize power button (pin 22 on JC2432W328C)
-  pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(g_power_button_pin, INPUT_PULLUP);
   
   // Configure deep sleep wake-up on power button press (active LOW)
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON_PIN, 0);  // Wake when pin goes LOW
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)g_power_button_pin, 0);  // Wake when pin goes LOW
   
-  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", POWER_BUTTON_PIN);
+  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
 #endif
   
   // Set debug mode based on current mode
@@ -209,7 +293,7 @@ void checkModeSwitch() {
     return;
   }
   
-  bool current_switch_state = digitalRead(MODE_SWITCH_PIN);
+  bool current_switch_state = digitalRead(g_mode_switch_pin);
   
   if (current_switch_state != last_switch_state) {
     // Determine new mode
@@ -275,7 +359,7 @@ void requestModeChange(OperationMode new_mode) {
 #if ENABLE_POWER_BUTTON
 // Check power button state and handle long press for deep sleep
 void checkPowerButton() {
-  bool button_state = digitalRead(POWER_BUTTON_PIN);
+  bool button_state = digitalRead(g_power_button_pin);
   
   // Button pressed (active LOW)
   if (button_state == LOW) {
@@ -318,7 +402,7 @@ void checkPowerButton() {
 void enterDeepSleep() {
 #if ENABLE_LCD_UI
   // Turn off backlight to save power
-  digitalWrite(LCD_BACKLIGHT, LOW);
+  digitalWrite(g_lcd_backlight, LOW);
   
   // Show sleep message on LCD if possible
   // (Could add a simple "Sleeping..." message to lcd_ui if desired)

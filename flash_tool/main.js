@@ -389,16 +389,77 @@ function findEsptool() {
   throw new Error(`esptool not found. Binary should be at: ${devPath}\n\nRun: ./download-esptool.sh`);
 }
 
+// Generate SPIFFS partition with custom config
+async function generateCustomSPIFFS(customConfig) {
+  const tempDir = app.getPath('temp');
+  const configJsonPath = path.join(tempDir, 'sfos_custom_config.json');
+  const spiffsImagePath = path.join(tempDir, 'custom_spiffs.bin');
+  
+  // Write config.json
+  await fs.writeFile(configJsonPath, JSON.stringify(customConfig, null, 2));
+  
+  // Run Python script to generate SPIFFS
+  const scriptPath = path.join(__dirname, 'resources', 'scripts', 'generate_spiffs.py');
+  
+  return new Promise((resolve, reject) => {
+    const python = spawn('python3', [scriptPath, configJsonPath, spiffsImagePath]);
+    
+    let output = '';
+    
+    python.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log(data.toString());
+    });
+    
+    python.stderr.on('data', (data) => {
+      output += data.toString();
+      console.error(data.toString());
+    });
+    
+    python.on('close', (code) => {
+      if (code === 0) {
+        resolve(spiffsImagePath);
+      } else {
+        reject(new Error(`SPIFFS generation failed: ${output}`));
+      }
+    });
+    
+    python.on('error', (err) => {
+      // Try 'python' instead of 'python3'
+      if (err.code === 'ENOENT') {
+        const pythonAlt = spawn('python', [scriptPath, configJsonPath, spiffsImagePath]);
+        
+        pythonAlt.stdout.on('data', (data) => console.log(data.toString()));
+        pythonAlt.stderr.on('data', (data) => console.error(data.toString()));
+        
+        pythonAlt.on('close', (code) => {
+          if (code === 0) {
+            resolve(spiffsImagePath);
+          } else {
+            reject(new Error('SPIFFS generation failed'));
+          }
+        });
+        
+        pythonAlt.on('error', (err2) => {
+          reject(new Error(`Python not found: ${err2.message}`));
+        });
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
+
 // Flash firmware using esptool.py
 ipcMain.handle('flash-firmware', async (event, options) => {
-  const { port, boardType, firmwarePath, baudRate = 921600 } = options;
+  const { port, boardType, firmwarePath, baudRate = 921600, customConfig = null } = options;
   const config = BOARD_CONFIGS[boardType];
   
   if (!config) {
     throw new Error('Invalid board type');
   }
   
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     let esptoolCmd;
     try {
       esptoolCmd = findEsptool();
@@ -431,6 +492,21 @@ ipcMain.handle('flash-firmware', async (event, options) => {
         args.push(config.flashAddresses[key], files[key]);
       }
     });
+    
+    // If custom config is provided, generate and add custom SPIFFS
+    if (customConfig) {
+      try {
+        event.sender.send('flash-progress', '\n=== Generating custom config SPIFFS ===\n');
+        const customSPIFFSPath = await generateCustomSPIFFS(customConfig);
+        event.sender.send('flash-progress', `✓ Custom SPIFFS generated: ${customSPIFFSPath}\n`);
+        
+        // Add custom SPIFFS to flash command (overwrites default spiffs)
+        args.push(config.flashAddresses.spiffs, customSPIFFSPath);
+      } catch (error) {
+        event.sender.send('flash-progress', `⚠ Custom SPIFFS generation failed: ${error.message}\n`);
+        event.sender.send('flash-progress', 'Continuing with standard firmware (no custom pins)\n');
+      }
+    }
     
     // Spawn esptool
     const esptool = spawn(esptoolCmd, args);

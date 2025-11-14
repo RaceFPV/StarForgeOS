@@ -35,7 +35,7 @@ public:
     void updateBandChannel(uint8_t band, uint8_t channel);
     void updateFrequency(uint16_t freq_mhz);
     void updateThreshold(uint8_t threshold);
-    void updateBattery(float voltage, uint8_t percentage);  // For custom PCB with voltage divider
+    void updateBattery(float voltage, uint8_t percentage, bool isCharging = false);  // For custom PCB with voltage divider
     
     // Link timing core for settings access
     void setTimingCore(TimingCore* core);

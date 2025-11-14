@@ -4,6 +4,41 @@ let selectedBoard = null;
 let selectedPort = null;
 let firmwareSource = 'github';
 let localFirmwarePath = null;
+let customPinsEnabled = false;
+
+// Pin presets for different boards
+const pinPresets = {
+  'esp32c3-default': {
+    rssi_input: 3,
+    rx5808_data: 6,
+    rx5808_clk: 4,
+    rx5808_sel: 7,
+    mode_switch: 1,
+    power_button: 0,
+    battery_adc: 0,
+    audio_dac: 0
+  },
+  'esp32c6-default': {
+    rssi_input: 0,
+    rx5808_data: 6,
+    rx5808_clk: 4,
+    rx5808_sel: 7,
+    mode_switch: 1,
+    power_button: 0,
+    battery_adc: 0,
+    audio_dac: 0
+  },
+  'esp32-default': {
+    rssi_input: 34,
+    rx5808_data: 23,
+    rx5808_clk: 18,
+    rx5808_sel: 5,
+    mode_switch: 33,
+    power_button: 0,
+    battery_adc: 0,
+    audio_dac: 26
+  }
+};
 
 // Initialize the app
 async function init() {
@@ -226,11 +261,15 @@ async function startFlashing() {
     showStatus('Flashing firmware... Do not disconnect!', 'info');
     appendToConsole('\n=== Starting flash process ===\n');
     
+    // Get custom pin configuration (if enabled)
+    const customConfig = getCustomPinConfig();
+    
     const result = await window.flasher.flashFirmware({
       port: selectedPort,
       boardType: selectedBoard,
       firmwarePath: firmwarePath,
-      baudRate: 921600
+      baudRate: 921600,
+      customConfig: customConfig
     });
     
     if (result.success) {
@@ -309,6 +348,64 @@ function setButtonsEnabled(enabled) {
   document.getElementById('erase-btn').disabled = !enabled;
   document.getElementById('board-select').disabled = !enabled;
   document.getElementById('port-select').disabled = !enabled;
+}
+
+// Advanced Config UI Functions
+function toggleAdvancedConfig() {
+  const body = document.getElementById('advanced-config-body');
+  const toggle = document.getElementById('advanced-toggle');
+  
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    toggle.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    toggle.classList.remove('open');
+  }
+}
+
+function toggleCustomPins() {
+  const enabled = document.getElementById('enable-custom-pins').checked;
+  const section = document.getElementById('custom-pins-section');
+  customPinsEnabled = enabled;
+  
+  section.style.display = enabled ? 'block' : 'none';
+}
+
+function loadPinPreset() {
+  const preset = document.getElementById('pin-preset').value;
+  if (!preset || !pinPresets[preset]) return;
+  
+  const pins = pinPresets[preset];
+  document.getElementById('pin-rssi').value = pins.rssi_input;
+  document.getElementById('pin-data').value = pins.rx5808_data;
+  document.getElementById('pin-clk').value = pins.rx5808_clk;
+  document.getElementById('pin-sel').value = pins.rx5808_sel;
+  document.getElementById('pin-mode').value = pins.mode_switch;
+  document.getElementById('pin-power').value = pins.power_button || 0;
+  document.getElementById('pin-battery').value = pins.battery_adc || 0;
+  document.getElementById('pin-audio').value = pins.audio_dac || 0;
+}
+
+function getCustomPinConfig() {
+  if (!customPinsEnabled) {
+    return null;
+  }
+  
+  return {
+    custom_pins: {
+      enabled: true,
+      rssi_input: parseInt(document.getElementById('pin-rssi').value) || 3,
+      rx5808_data: parseInt(document.getElementById('pin-data').value) || 6,
+      rx5808_clk: parseInt(document.getElementById('pin-clk').value) || 4,
+      rx5808_sel: parseInt(document.getElementById('pin-sel').value) || 7,
+      mode_switch: parseInt(document.getElementById('pin-mode').value) || 1,
+      power_button: parseInt(document.getElementById('pin-power').value) || 0,
+      battery_adc: parseInt(document.getElementById('pin-battery').value) || 0,
+      audio_dac: parseInt(document.getElementById('pin-audio').value) || 0,
+      usb_detect: parseInt(document.getElementById('pin-usb-detect').value) || 0
+    }
+  };
 }
 
 // Initialize when DOM is ready

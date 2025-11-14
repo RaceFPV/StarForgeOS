@@ -1,0 +1,17 @@
+{
+  "custom_pins": {
+    "enabled": false,
+    "rssi_input": 3,
+    "rx5808_data": 6,
+    "rx5808_clk": 4,
+    "rx5808_sel": 7,
+    "mode_switch": 1,
+    "power_button": 0,
+    "battery_adc": 0,
+    "audio_dac": 0,
+    "lcd_i2c_sda": -1,
+    "lcd_i2c_scl": -1,
+    "lcd_backlight": -1
+  }
+}
+

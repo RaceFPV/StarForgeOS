@@ -1,4 +1,5 @@
 #include "standalone_mode.h"
+#include "config_globals.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
 #include <ESPmDNS.h>
@@ -30,10 +31,10 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
     // Initialize ADC for battery monitoring
-    pinMode(BATTERY_ADC_PIN, INPUT);
+    pinMode(g_battery_adc_pin, INPUT);
     
     // Set attenuation specifically for this pin (ADC1)
-    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);  // 0-3.3V range
+    analogSetPinAttenuation(g_battery_adc_pin, ADC_11db);  // 0-3.3V range
     
     // Set ADC resolution (ESP32-S3 uses analogReadResolution instead of analogSetWidth)
     #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_ESP32S3_DEV)
@@ -41,6 +42,13 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     #else
         analogSetWidth(12);  // 12-bit resolution (0-4095) for ESP32
     #endif
+#endif
+
+#if defined(USB_DETECT_PIN)
+    // Initialize USB detection pin (D+ line monitoring)
+    pinMode(g_usb_detect_pin, INPUT);
+    Serial.printf("USB detection enabled on GPIO%d (connect D+ -> 100kΩ -> GPIO%d)\n", 
+                  g_usb_detect_pin, g_usb_detect_pin);
 #endif
 
 #if ENABLE_AUDIO
@@ -227,7 +235,13 @@ void StandaloneMode::process() {
         if (millis() - last_battery_update > 5000) {
             float voltage = readBatteryVoltage();
             uint8_t percentage = calculateBatteryPercentage(voltage);
+            
+#if defined(USB_DETECT_PIN)
+            bool isCharging = detectUSBConnection();
+            _lcdUI->updateBattery(voltage, percentage, isCharging);
+#else
             _lcdUI->updateBattery(voltage, percentage);
+#endif
             last_battery_update = millis();
         }
 #endif
@@ -560,7 +574,7 @@ float StandaloneMode::readBatteryVoltage() {
     uint8_t successful_reads = 0;
     
     for (int i = 0; i < BATTERY_SAMPLES; i++) {
-        int adc_value = analogRead(BATTERY_ADC_PIN);
+        int adc_value = analogRead(g_battery_adc_pin);
         if (adc_value >= 0) {  // Valid ADC reading
             adc_sum += adc_value;
             successful_reads++;
@@ -592,6 +606,27 @@ uint8_t StandaloneMode::calculateBatteryPercentage(float voltage) {
     
     float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0;
     return (uint8_t)percentage;
+}
+#endif
+
+#if defined(USB_DETECT_PIN)
+// USB detection via D+ line monitoring
+// D+ is normally HIGH (~3.3V) when USB is connected, LOW when disconnected
+// Sample multiple times to avoid false readings from USB data traffic
+bool StandaloneMode::detectUSBConnection() {
+    int highCount = 0;
+    
+    // Take multiple samples to filter out data pulses
+    for (int i = 0; i < USB_DETECT_SAMPLES; i++) {
+        if (digitalRead(g_usb_detect_pin) == HIGH) {
+            highCount++;
+        }
+        delayMicroseconds(100);  // Small delay between samples to avoid catching same pulse
+    }
+    
+    // Majority vote: If more than half the samples are HIGH, USB is connected
+    // This filters out transient data pulses while reliably detecting USB presence
+    return (highCount > (USB_DETECT_SAMPLES / 2));
 }
 #endif
 

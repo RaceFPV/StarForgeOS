@@ -49,6 +49,11 @@ private:
     uint8_t calculateBatteryPercentage(float voltage);
 #endif
 
+#if defined(USB_DETECT_PIN)
+    // USB detection via D+ line monitoring (for charging indicator)
+    bool detectUSBConnection();
+#endif
+
 #if ENABLE_AUDIO
     void playLapBeep();
     void speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs);
