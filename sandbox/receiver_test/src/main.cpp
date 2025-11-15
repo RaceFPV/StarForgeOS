@@ -6,7 +6,7 @@
  * 
  * Commands:
  *   f <freq>  - Set frequency (e.g., "f 5800") [disables auto-cycle]
- *   a         - Toggle auto-cycle between 5725/5800 (10 sec interval)
+ *   a         - Toggle auto-cycle between 5725/5800 (5 sec interval)
  *   r         - Read current RSSI
  *   i         - Initialize/reset RTC6715
  *   c         - Force channel mode test (pins LOW, stays LOW)
@@ -14,16 +14,24 @@
  *   s         - Show current status
  *   h         - Show help
  * 
- * Default: Auto-cycles between 5725 and 5800 MHz every 10 seconds
+ * Default: Auto-cycles between 5725 and 5800 MHz every 5 seconds
  */
 
 #include <Arduino.h>
+#include <Wire.h>
+#include <U8g2lib.h>
 
 // Pin definitions (same as NovaCore board)
 #define RSSI_INPUT_PIN      3     // ADC1_CH3 - RSSI input from RX5808
 #define RX5808_DATA_PIN     6     // SPI MOSI to RX5808 module
 #define RX5808_CLK_PIN      4     // SPI SCK to RX5808 module
 #define RX5808_SEL_PIN      7     // SPI CS to RX5808 module
+
+// I2C Display pins
+#define DISPLAY_SDA         8     // I2C SDA pin
+#define DISPLAY_SCL         9     // I2C SCL pin
+#define SCREEN_WIDTH        128   // OLED display width, in pixels
+#define SCREEN_HEIGHT       64    // OLED display height, in pixels
 
 // RX5808 timing constants
 #define RX5808_MIN_TUNETIME 35    // ms - wait after freq change
@@ -36,8 +44,14 @@ bool freq_recently_changed = false;
 // Auto-cycling state
 bool auto_cycle_enabled = true;
 uint32_t last_cycle_time = 0;
-const uint32_t CYCLE_INTERVAL = 10000;  // 10 seconds
+const uint32_t CYCLE_INTERVAL = 5000;  // 5 seconds
 bool cycle_on_5725 = true;  // Start with 5725
+
+// Display objects - Try SH1106 first (most common for 0.96"), fallback to SSD1306
+U8G2_SH1106_128X64_NONAME_F_HW_I2C display_sh1106(U8G2_R0, U8X8_PIN_NONE, DISPLAY_SCL, DISPLAY_SDA);
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C display_ssd1306(U8G2_R0, U8X8_PIN_NONE, DISPLAY_SCL, DISPLAY_SDA);
+U8G2* display = nullptr;  // Will point to the working display
+bool display_available = false;
 
 // Function prototypes
 void sendRX5808Bit(uint8_t bit_value);
@@ -50,6 +64,8 @@ void showHelp();
 void showStatus();
 void forceChannelModeTest();
 void restoreNormalOperation();
+void initDisplay();
+void updateDisplay();
 
 void setup() {
   Serial.begin(921600);
@@ -77,6 +93,9 @@ void setup() {
   // Configure ADC for full 0-3.3V range
   analogSetAttenuation(ADC_11db);
   
+  // Initialize I2C display
+  initDisplay();
+  
   Serial.println("Initializing RTC6715...");
   delay(100);
   
@@ -91,13 +110,16 @@ void setup() {
   Serial.println("╔════════════════════════════════════════════════════╗");
   Serial.println("║           AUTO-CYCLE MODE: ACTIVE                 ║");
   Serial.println("╚════════════════════════════════════════════════════╝");
-  Serial.println("→ Cycling between 5725 MHz ↔ 5800 MHz every 10 sec");
+  Serial.println("→ Cycling between 5725 MHz ↔ 5800 MHz every 5 sec");
   Serial.println("→ Set generator to 5725 or 5800 and watch RSSI");
   Serial.println("→ Type 'a' to disable, 'f <freq>' to set manual freq");
   Serial.println();
   showStatus();
   Serial.println();
   showHelp();
+  
+  // Update display with initial state
+  updateDisplay();
 }
 
 void loop() {
@@ -123,11 +145,12 @@ void loop() {
     }
     last_cycle_time = millis();
     Serial.println();
+    updateDisplay();  // Update display after auto-cycle frequency change
   }
   
-  // Auto-display RSSI every second
+  // Auto-display RSSI every 0.5 seconds
   static uint32_t last_display = 0;
-  if (millis() - last_display > 1000) {
+  if (millis() - last_display > 500) {
     uint8_t rssi = readRSSI();
     if (auto_cycle_enabled) {
       Serial.printf("[RSSI] %d | Freq: %d MHz | AUTO-CYCLE: %s\n", 
@@ -136,6 +159,7 @@ void loop() {
     } else {
       Serial.printf("[RSSI] %d | Freq: %d MHz\n", rssi, current_frequency);
     }
+    updateDisplay();  // Update display with latest RSSI
     last_display = millis();
   }
   
@@ -159,6 +183,7 @@ void processCommand(String cmd) {
       delay(50);
       uint8_t rssi = readRSSI();
       Serial.printf("✓ Frequency set. Current RSSI: %d\n\n", rssi);
+      updateDisplay();  // Update display after frequency change
     } else {
       Serial.println("✗ Invalid frequency. Range: 5645-5945 MHz\n");
     }
@@ -168,7 +193,7 @@ void processCommand(String cmd) {
     auto_cycle_enabled = !auto_cycle_enabled;
     if (auto_cycle_enabled) {
       Serial.println("\n✓ AUTO-CYCLE ENABLED");
-      Serial.println("  Will cycle between 5725 and 5800 every 10 seconds\n");
+      Serial.println("  Will cycle between 5725 and 5800 every 5 seconds\n");
       last_cycle_time = millis();  // Reset timer
     } else {
       Serial.println("\n✓ AUTO-CYCLE DISABLED\n");
@@ -182,6 +207,7 @@ void processCommand(String cmd) {
     Serial.printf("  RSSI: %d (0-255)\n", rssi);
     Serial.printf("  ADC:  %d (0-4095)\n", adc);
     Serial.printf("  Freq: %d MHz\n\n", current_frequency);
+    updateDisplay();  // Update display after RSSI read
   }
   else if (cmd == "i") {
     // Initialize/reset command
@@ -204,6 +230,7 @@ void processCommand(String cmd) {
     Serial.println();
     showStatus();
     Serial.println();
+    updateDisplay();  // Update display when showing status
   }
   else if (cmd == "h") {
     // Help command
@@ -225,7 +252,7 @@ void showHelp() {
   Serial.println("            (Disables auto-cycle)");
   Serial.println();
   Serial.println("  a         Toggle AUTO-CYCLE mode");
-  Serial.println("            Cycles between 5725/5800 every 10 sec");
+  Serial.println("            Cycles between 5725/5800 every 5 sec");
   Serial.println();
   Serial.println("  r         Read current RSSI value");
   Serial.println("  i         Initialize/reset RTC6715 chip");
@@ -239,7 +266,7 @@ void showHelp() {
   Serial.println();
   Serial.println("AUTO-CYCLE MODE (Default: ON):");
   Serial.println("  → Automatically cycles between 5725 and 5800 MHz");
-  Serial.println("  → 10 second intervals");
+  Serial.println("  → 5 second intervals");
   Serial.println("  → Perfect for quick board testing");
   Serial.println("  → Just set generator to 5725 or 5800 and watch RSSI");
   Serial.println();
@@ -544,5 +571,98 @@ void restoreNormalOperation() {
   setFrequency(current_frequency);
   
   Serial.printf("\n✓ Normal operation restored to %d MHz\n\n", current_frequency);
+  updateDisplay();  // Update display after restore
+}
+
+void initDisplay() {
+  Serial.print("Initializing I2C display (SDA=GPIO");
+  Serial.print(DISPLAY_SDA);
+  Serial.print(", SCL=GPIO");
+  Serial.print(DISPLAY_SCL);
+  Serial.print(")...");
+  
+  // Initialize I2C
+  Wire.begin(DISPLAY_SDA, DISPLAY_SCL);
+  Wire.setClock(400000);  // 400kHz I2C clock
+  delay(100);
+  
+  // Try SH1106 first (most common for 0.96" displays)
+  Serial.print(" Trying SH1106...");
+  display_sh1106.begin();
+  display_sh1106.setPowerSave(0);  // Turn on display
+  display_sh1106.clearBuffer();
+  display_sh1106.setFont(u8g2_font_ncenB08_tr);
+  display_sh1106.setCursor(0, 10);
+  display_sh1106.print("SH1106");
+  display_sh1106.sendBuffer();
+  delay(200);
+  
+  // If SH1106 worked, use it
+  display = &display_sh1106;
+  display_available = true;
+  Serial.print(" OK (SH1106)");
+  
+  // Clear and show startup message
+  display->clearBuffer();
+  display->setFont(u8g2_font_ncenB08_tr);
+  display->setCursor(0, 10);
+  display->print("RECEIVER TEST");
+  display->setCursor(0, 22);
+  display->print("RTC6715 Diag");
+  display->setCursor(0, 34);
+  display->print("Initializing...");
+  display->sendBuffer();
+  
+  Serial.println();
+}
+
+void updateDisplay() {
+  if (!display_available || display == nullptr) return;
+  
+  uint8_t rssi = readRSSI();
+  
+  // Clear display buffer
+  display->clearBuffer();
+  
+  // Header (small font)
+  display->setFont(u8g2_font_ncenB08_tr);
+  display->setCursor(0, 10);
+  display->print("RECEIVER TEST");
+  
+  // Draw separator line
+  display->drawHLine(0, 12, SCREEN_WIDTH);
+  
+  // Frequency (large font)
+  display->setFont(u8g2_font_ncenB14_tr);
+  display->setCursor(0, 30);
+  display->print(current_frequency);
+  display->setFont(u8g2_font_ncenB08_tr);
+  display->print(" MHz");
+  
+  // RSSI (large font)
+  display->setFont(u8g2_font_ncenB14_tr);
+  display->setCursor(0, 48);
+  display->print(rssi);
+  display->setFont(u8g2_font_ncenB08_tr);
+  display->print(" /255");
+  
+  // Auto-cycle status (small font, right side, above bar)
+  display->setFont(u8g2_font_ncenB08_tr);
+  display->setCursor(70, 56);
+  if (auto_cycle_enabled) {
+    display->print("AUTO");
+  } else {
+    display->print("MAN");
+  }
+  
+  // RSSI bar indicator (visual, at bottom)
+  int bar_width = map(rssi, 0, 255, 0, SCREEN_WIDTH - 2);
+  display->drawFrame(0, 58, SCREEN_WIDTH, 6);
+  if (bar_width > 0) {
+    display->drawBox(1, 59, bar_width, 4);
+  }
+  
+  // Send buffer to display
+  display->sendBuffer();
 }
 
