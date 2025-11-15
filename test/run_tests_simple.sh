@@ -31,6 +31,16 @@ case $MODE in
         # Test all test-* environments with hardware
         pio test -e test-esp32-c3 -e test-esp32-c6 -e test-esp32 -e test-esp32-s2 -e test-esp32-s3 -e test-esp32-s3-touch -e test-jc2432w328c
         ;;
+    silent)
+        if [ -z "$2" ]; then
+            echo -e "${RED}Error: Please specify serial port${NC}"
+            echo "Usage: $0 silent <PORT>"
+            echo "Example: $0 silent /dev/ttyUSB0"
+            exit 1
+        fi
+        echo -e "${BLUE}Testing Silent RotorHazard Mode on $2${NC}\n"
+        python3 tools/test_silent_rotorhazard.py "$2"
+        ;;
     specific)
         if [ -z "$2" ]; then
             echo -e "${RED}Error: Please specify board environment${NC}"
@@ -43,7 +53,13 @@ case $MODE in
         ;;
     *)
         echo -e "${RED}Unknown mode: $MODE${NC}"
-        echo "Usage: $0 [build-only|hardware|specific <env>]"
+        echo "Usage: $0 [build-only|hardware|silent <port>|specific <env>]"
+        echo ""
+        echo "Examples:"
+        echo "  $0 build-only          # Compile tests only (no upload)"
+        echo "  $0 hardware            # Run all tests with connected board"
+        echo "  $0 silent /dev/ttyUSB0 # Test RotorHazard silent mode"
+        echo "  $0 specific test-esp32-c3 # Test specific board"
         exit 1
         ;;
 esac

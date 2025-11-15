@@ -115,10 +115,16 @@ void setup() {
   // This prevents boot messages from being misinterpreted as protocol responses
   delay(300);
   
+  // CRITICAL: Determine operating mode FIRST before any Serial output
+  // Load default mode from config.json (if available) - this function is SILENT
+  String defaultModeStr = ConfigLoader::loadDefaultMode();
+  OperationMode defaultMode = (defaultModeStr == "rotorhazard") ? MODE_ROTORHAZARD : MODE_STANDALONE;
+  
   // Load custom pin configuration from SPIFFS (if available)
   // This must happen BEFORE any pins are used or modes are initialized
   CustomPinConfig customConfig;
-  if (ConfigLoader::loadCustomConfig(&customConfig)) {
+  bool hasCustomPins = ConfigLoader::loadCustomConfig(&customConfig);
+  if (hasCustomPins) {
     // Override pins with custom values from config.json
     g_rssi_input_pin = customConfig.rssi_input_pin;
     g_rx5808_data_pin = customConfig.rx5808_data_pin;
@@ -161,51 +167,71 @@ void setup() {
       g_lcd_backlight = customConfig.lcd_backlight;
     }
     #endif
-    
-    Serial.println("Using custom pin configuration from /config.json");
-  } else {
-    Serial.println("Using default pin configuration from config.h");
   }
-  
-  // Debug: Print board configuration
-  Serial.println("\n=== BOARD CONFIGURATION ===");
-  #if defined(BOARD_ESP32_S3_TOUCH)
-    Serial.println("Board: Waveshare ESP32-S3-Touch-LCD-2");
-    Serial.printf("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
-    Serial.printf("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
-  #elif defined(BOARD_JC2432W328C)
-    Serial.println("Board: JC2432W328C");
-  #else
-    Serial.println("Board: Generic ESP32");
-  #endif
-  Serial.println("===========================\n");
   
 #if ENABLE_LCD_UI
   // Touch board: Mode is controlled via touchscreen button, not physical pin
-  // ALWAYS start in standalone mode on boot (LCD/WiFi mode)
-  // This ensures users can always access the UI to switch modes, even after
-  // a reset while in RotorHazard mode (where LCD is not visible)
-  current_mode = MODE_STANDALONE;
-  requested_mode = MODE_STANDALONE;  // Ensure both are in sync
-  Serial.println("Touch board detected: Mode switch via LCD UI");
-  Serial.println("Defaulting to STANDALONE mode (user can switch via LCD button)");
+  // Use default from config, but allow override via LCD UI
+  current_mode = defaultMode;
+  requested_mode = defaultMode;  // Ensure both are in sync
 #else
   // Non-touch boards: Initialize mode selection pin (LOW=Standalone, HIGH/floating=RotorHazard)
   pinMode(g_mode_switch_pin, INPUT_PULLUP);
   
-  // Determine initial mode BEFORE any serial output
-  // LOW (GND) = Standalone mode, HIGH (floating/pullup) = RotorHazard mode
-  bool initial_switch_state = digitalRead(g_mode_switch_pin);
-  current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
+  // Check if mode switch pin is being used to override default
+  // LOW (GND) = force Standalone mode, HIGH (floating/pullup) = use default mode
+  bool mode_switch_state = digitalRead(g_mode_switch_pin);
+  if (mode_switch_state == LOW) {
+    // Mode switch grounded - force standalone mode
+    current_mode = MODE_STANDALONE;
+  } else {
+    // Mode switch high/floating - use configured default mode
+    current_mode = defaultMode;
+  }
 #endif
   
   // Only show startup messages in standalone mode (safe for debug output)
+  // CRITICAL: No Serial output before this check - breaks RotorHazard protocol!
   if (current_mode == MODE_STANDALONE) {
     Serial.println();
     Serial.println("=== StarForge ESP32 Timer ===");
     Serial.println("Version: 1.0.0");
     Serial.println();
+    
+    // Print board configuration
+    Serial.println("=== BOARD CONFIGURATION ===");
+#if defined(BOARD_ESP32_S3_TOUCH)
+    Serial.println("Board: Waveshare ESP32-S3-Touch-LCD-2");
+    Serial.printf("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
+    Serial.printf("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
+#elif defined(BOARD_JC2432W328C)
+    Serial.println("Board: JC2432W328C");
+#else
+    Serial.println("Board: Generic ESP32");
+#endif
+    
+    // Print pin configuration
+    if (hasCustomPins) {
+      Serial.println("Pin Config: Custom (/config.json)");
+    } else {
+      Serial.println("Pin Config: Default (config.h)");
+    }
+    Serial.println("===========================\n");
+    
     Serial.println("Mode: STANDALONE/WIFI");
+    
+#if ENABLE_LCD_UI
+    Serial.println("Touch board detected: Mode switch via LCD UI");
+    Serial.printf("Default mode from config: %s\n", (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD");
+#else
+    if (mode_switch_state == LOW) {
+      Serial.println("Mode switch LOW - forced STANDALONE mode");
+    } else {
+      Serial.printf("Mode switch HIGH - using default mode: %s\n", 
+                    (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD");
+    }
+#endif
+    
     Serial.println("Initializing timing core...");
     WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
   }
@@ -222,7 +248,9 @@ void setup() {
   // Configure deep sleep wake-up on power button press (active LOW)
   esp_sleep_enable_ext0_wakeup((gpio_num_t)g_power_button_pin, 0);  // Wake when pin goes LOW
   
-  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
+  if (current_mode == MODE_STANDALONE) {
+    Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
+  }
 #endif
   
   // Set debug mode based on current mode
@@ -351,8 +379,11 @@ void initializeMode() {
 // Function to request mode change from UI (touch boards only)
 void requestModeChange(OperationMode new_mode) {
   requested_mode = new_mode;
-  Serial.printf("UI: Mode change requested to %s\n", 
-                new_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
+  // Only print if currently in standalone mode (safe to print)
+  if (current_mode == MODE_STANDALONE) {
+    Serial.printf("UI: Mode change requested to %s\n", 
+                  new_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
+  }
 }
 #endif
 
@@ -375,9 +406,11 @@ void checkPowerButton() {
       if (press_duration >= POWER_BUTTON_LONG_PRESS_MS && !deep_sleep_initiated) {
         // Long press detected - enter deep sleep
         deep_sleep_initiated = true;
-        Serial.println("Power button long press detected - entering deep sleep...");
-        Serial.println("Press power button to wake up");
-        delay(100);  // Let serial output complete
+        if (current_mode == MODE_STANDALONE) {
+          Serial.println("Power button long press detected - entering deep sleep...");
+          Serial.println("Press power button to wake up");
+          delay(100);  // Let serial output complete
+        }
         enterDeepSleep();
       }
     }
@@ -388,7 +421,9 @@ void checkPowerButton() {
       
       // Short press - could be used for other functions if needed
       if (press_duration < POWER_BUTTON_LONG_PRESS_MS && press_duration > 50) {
-        Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
+        if (current_mode == MODE_STANDALONE) {
+          Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
+        }
         // Optional: Could show a menu or toggle something here
       }
       

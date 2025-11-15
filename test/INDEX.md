@@ -23,6 +23,7 @@ This validates your code compiles for **all 7 ESP32 board types** in ~5 minutes 
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design | Advanced |
 | **[TEST_CHECKLIST.md](TEST_CHECKLIST.md)** | Testing workflow | Contributors |
 | **[SUMMARY.md](SUMMARY.md)** | What's included | Overview |
+| **[SILENT_MODE_TESTING.md](SILENT_MODE_TESTING.md)** | RotorHazard silent mode | **CRITICAL** |
 
 ## 🎯 Test Categories
 
@@ -46,6 +47,19 @@ Validates display, touch, and UI features (LCD boards only).
 
 **Run:** `pio test -e test-esp32-s3-touch -f test_lcd`
 
+### 📡 Protocol Tests (`test_protocol/`)
+Tests RotorHazard binary protocol implementation.
+
+**Run:** `pio test -e test-esp32-c3 -f test_protocol`
+
+### 🔇 Silent Mode Tests (`test_silent/`)
+**CRITICAL:** Ensures RotorHazard mode produces NO debug output.
+
+**Run (unit tests):** `pio test -e test-esp32-c3 -f test_silent`  
+**Run (hardware):** `./run_tests_simple.sh silent /dev/ttyUSB0`
+
+⚠️ See [SILENT_MODE_TESTING.md](SILENT_MODE_TESTING.md) for details.
+
 ## 🎛️ Supported Boards
 
 | Board | Type | Features | Status |
@@ -61,8 +75,8 @@ Validates display, touch, and UI features (LCD boards only).
 ## 📊 Statistics
 
 - **7** Board configurations
-- **4** Test categories  
-- **60+** Test cases
+- **6** Test categories  
+- **70+** Test cases
 - **100%** Build coverage
 - **Automated** CI/CD
 
@@ -77,6 +91,9 @@ Validates display, touch, and UI features (LCD boards only).
 
 # Test with hardware connected
 ./run_tests.sh hardware
+
+# Test RotorHazard silent mode (CRITICAL!)
+./run_tests_simple.sh silent /dev/ttyUSB0
 
 # Run specific test category
 pio test -e test-esp32-c3 -f test_hardware

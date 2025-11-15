@@ -10,21 +10,19 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config) {
     }
     
     // Initialize SPIFFS if not already mounted
+    // IMPORTANT: No Serial output - might be in RotorHazard mode
     if (!SPIFFS.begin(true)) {
-        Serial.println("ConfigLoader: SPIFFS mount failed - using config.h defaults");
         return false;
     }
     
     // Check if config file exists
     if (!SPIFFS.exists(CONFIG_FILE_PATH)) {
-        Serial.println("ConfigLoader: No custom config found - using config.h defaults");
         return false;
     }
     
     // Open config file
     File configFile = SPIFFS.open(CONFIG_FILE_PATH, "r");
     if (!configFile) {
-        Serial.println("ConfigLoader: Failed to open config.json - using config.h defaults");
         return false;
     }
     
@@ -34,14 +32,12 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config) {
     configFile.close();
     
     if (error) {
-        Serial.printf("ConfigLoader: JSON parse error: %s - using config.h defaults\n", error.c_str());
         return false;
     }
     
     // Check if custom pins are enabled
     JsonObject customPins = doc["custom_pins"];
     if (!customPins || !customPins["enabled"].as<bool>()) {
-        Serial.println("ConfigLoader: Custom pins disabled - using config.h defaults");
         return false;
     }
     
@@ -90,12 +86,8 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config) {
         config->lcd_backlight = customPins["lcd_backlight"].as<int8_t>();
     }
     
-    Serial.println("ConfigLoader: Custom pin configuration loaded successfully!");
-    Serial.printf("  RSSI Input: GPIO%d\n", config->rssi_input_pin);
-    Serial.printf("  RX5808 Data: GPIO%d\n", config->rx5808_data_pin);
-    Serial.printf("  RX5808 CLK: GPIO%d\n", config->rx5808_clk_pin);
-    Serial.printf("  RX5808 SEL: GPIO%d\n", config->rx5808_sel_pin);
-    Serial.printf("  Mode Switch: GPIO%d\n", config->mode_switch_pin);
+    // IMPORTANT: No Serial output here - might be in RotorHazard mode
+    // Debug output for pin config will be printed in main.cpp after mode is determined
     
     return true;
 }
@@ -106,8 +98,8 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
     }
     
     // Initialize SPIFFS if not already mounted
+    // IMPORTANT: No Serial output - might be in RotorHazard mode
     if (!SPIFFS.begin(true)) {
-        Serial.println("ConfigLoader: SPIFFS mount failed - cannot save config");
         return false;
     }
     
@@ -152,19 +144,16 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
     // Open file for writing
     File configFile = SPIFFS.open(CONFIG_FILE_PATH, "w");
     if (!configFile) {
-        Serial.println("ConfigLoader: Failed to open config.json for writing");
         return false;
     }
     
     // Write JSON to file
     if (serializeJson(doc, configFile) == 0) {
-        Serial.println("ConfigLoader: Failed to write config.json");
         configFile.close();
         return false;
     }
     
     configFile.close();
-    Serial.println("ConfigLoader: Configuration saved successfully");
     return true;
 }
 
@@ -191,5 +180,41 @@ bool ConfigLoader::hasCustomConfig() {
     }
     
     return doc["custom_pins"]["enabled"].as<bool>();
+}
+
+String ConfigLoader::loadDefaultMode() {
+    // Initialize SPIFFS if not already mounted
+    // IMPORTANT: No Serial output here - might be in RotorHazard mode
+    if (!SPIFFS.begin(true)) {
+        return "rotorhazard";
+    }
+    
+    // Check if config file exists
+    if (!SPIFFS.exists(CONFIG_FILE_PATH)) {
+        return "rotorhazard";
+    }
+    
+    // Open config file
+    File configFile = SPIFFS.open(CONFIG_FILE_PATH, "r");
+    if (!configFile) {
+        return "rotorhazard";
+    }
+    
+    // Parse JSON
+    DynamicJsonDocument doc(1024);
+    DeserializationError error = deserializeJson(doc, configFile);
+    configFile.close();
+    
+    if (error) {
+        return "rotorhazard";
+    }
+    
+    // Load default mode setting
+    if (doc.containsKey("default_mode")) {
+        String mode = doc["default_mode"].as<String>();
+        return mode;
+    }
+    
+    return "rotorhazard";
 }
 

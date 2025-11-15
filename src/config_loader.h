@@ -40,6 +40,10 @@ public:
     // Check if custom config exists and is enabled
     static bool hasCustomConfig();
     
+    // Load default operation mode from config.json
+    // Returns "standalone" or "rotorhazard", defaults to "standalone" if not set
+    static String loadDefaultMode();
+    
 private:
     static const char* CONFIG_FILE_PATH;
 };

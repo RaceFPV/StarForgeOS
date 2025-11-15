@@ -388,20 +388,25 @@ function loadPinPreset() {
 }
 
 function getCustomPinConfig() {
-  if (!customPinsEnabled) {
-    return null;
-  }
+  const config = {};
   
-  return {
-    custom_pins: {
+  // Always include default mode setting
+  const defaultMode = document.getElementById('default-mode').value;
+  config.default_mode = defaultMode;
+  
+  // Include custom pins if enabled
+  if (customPinsEnabled) {
+    config.custom_pins = {
       enabled: true,
       rssi_input: parseInt(document.getElementById('pin-rssi').value) || 3,
       rx5808_data: parseInt(document.getElementById('pin-data').value) || 6,
       rx5808_clk: parseInt(document.getElementById('pin-clk').value) || 4,
       rx5808_sel: parseInt(document.getElementById('pin-sel').value) || 7,
       mode_switch: parseInt(document.getElementById('pin-mode').value) || 1
-    }
-  };
+    };
+  }
+  
+  return Object.keys(config).length > 0 ? config : null;
 }
 
 // Initialize when DOM is ready

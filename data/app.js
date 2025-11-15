@@ -246,6 +246,9 @@ class RaceTimer {
         const previousLapCount = this.laps.length;
         const currentLapCount = laps.length;
         
+        // Update laps array FIRST (before announcing)
+        this.laps = laps;
+        
         if (currentLapCount > previousLapCount) {
             // New lap detected - announce it
             const newLap = laps[laps.length - 1];
@@ -254,8 +257,6 @@ class RaceTimer {
             }
         }
         
-        // Update laps array
-        this.laps = laps;
         this.updateLapDisplay();
     }
     
@@ -433,216 +434,6 @@ class RaceTimer {
         requestAnimationFrame(() => this.drawGraph());
     }
     
-    connectWebSocket() {
-        // Use HTTP polling instead of WebSocket for standalone mode
-        console.log('Starting HTTP polling mode...');
-        this.setConnectionStatus(true);
-        this.startPolling();
-    }
-    
-    startPolling() {
-        // Poll for updates every 250ms
-        this.pollInterval = setInterval(() => {
-            this.updateData();
-        }, 250);
-        console.log('Polling started');
-    }
-    
-    stopPolling() {
-        if (this.pollInterval) {
-            clearInterval(this.pollInterval);
-            this.pollInterval = null;
-        }
-    }
-    
-    async updateData() {
-        try {
-            // Get status
-            const statusResponse = await fetch('/api/status');
-            const status = await statusResponse.json();
-            this.updateStatus(status);
-            
-            // Get laps
-            const lapsResponse = await fetch('/api/laps');
-            const laps = await lapsResponse.json();
-            this.updateLaps(laps);
-            
-        } catch (error) {
-            console.error('Error updating data:', error);
-            this.setConnectionStatus(false);
-        }
-    }
-    
-    setConnectionStatus(connected) {
-        this.isConnected = connected;
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-        
-        console.log('Setting connection status:', connected, 'Elements:', {statusDot, statusText});
-        
-        if (statusDot && statusText) {
-            if (connected) {
-                statusDot.className = 'status-dot connected';
-                statusText.textContent = 'Connected';
-            } else {
-                statusDot.className = 'status-dot connecting';
-                statusText.textContent = 'Connecting...';
-            }
-        } else {
-            console.error('Status elements not found in DOM');
-        }
-    }
-    
-    handleMessage(data) {
-        switch (data.type) {
-            case 'status':
-                this.updateStatus(data);
-                break;
-            case 'lap':
-                this.addLap(data);
-                break;
-            case 'race_state':
-                this.updateRaceState(data);
-                break;
-            default:
-                console.log('Unknown message type:', data.type);
-        }
-    }
-    
-    updateStatus(data) {
-        this.currentStatus = data;
-        
-        // Store RSSI for graphing
-        const rssiValue = data.rssi || data.current_rssi || 0;
-        this.rssiHistory.push(rssiValue);
-        
-        // Keep history limited
-        if (this.rssiHistory.length > this.maxHistory) {
-            this.rssiHistory.shift();
-        }
-        
-        // Update lap count
-        const lapCount = document.getElementById('lapCount');
-        if (lapCount) {
-            lapCount.textContent = data.lap_count || 0;
-        }
-        
-        // Update RSSI displays (if they exist)
-        const currentRssi = document.getElementById('currentRssi');
-        if (currentRssi) {
-            currentRssi.textContent = rssiValue;
-        }
-        
-        const peakRssi = document.getElementById('peakRssi');
-        if (peakRssi) {
-            peakRssi.textContent = data.peak_rssi || 0;
-        }
-        
-        // Update RSSI bar (if it exists)
-        const rssiFill = document.getElementById('rssiFill');
-        if (rssiFill) {
-            const rssiPercent = Math.min(rssiValue / 255 * 100, 100);
-            rssiFill.style.width = rssiPercent + '%';
-        }
-        
-        // Show crossing state
-        const statusItems = document.querySelectorAll('.status-item, .stat-card');
-        if (data.crossing) {
-            statusItems.forEach(item => item.classList.add('crossing'));
-        } else {
-            statusItems.forEach(item => item.classList.remove('crossing'));
-        }
-    }
-    
-    updateLaps(laps) {
-        // Check for new laps by comparing with previous lap count
-        const previousLapCount = this.laps.length;
-        const currentLapCount = laps.length;
-        
-        if (currentLapCount > previousLapCount) {
-            // New lap detected - announce it
-            const newLap = laps[laps.length - 1];
-            if (this.audioEnabled && newLap.lap_time_ms > 0) {
-                this.announceLapTime(newLap);
-            }
-        }
-        
-        // Update laps array
-        this.laps = laps;
-        this.updateLapDisplay();
-    }
-    
-    addLap(lapData) {
-        this.laps.push(lapData);
-        this.updateLapDisplay();
-        this.updateLastLap(lapData);
-        
-        // Announce lap time if audio is enabled
-        if (this.audioEnabled && lapData.lap_time_ms > 0) {
-            this.announceLapTime(lapData);
-        }
-        
-        // Flash animation for new lap
-        setTimeout(() => {
-            const lapItems = document.querySelectorAll('.lap-item');
-            if (lapItems.length > 0) {
-                lapItems[0].classList.add('new-lap');
-                setTimeout(() => {
-                    lapItems[0].classList.remove('new-lap');
-                }, 1000);
-            }
-        }, 100);
-    }
-    
-    updateLastLap(lapData) {
-        const lastLapElement = document.getElementById('lastLap');
-        if (lapData.lap_time_ms > 0) {
-            lastLapElement.textContent = this.formatTime(lapData.lap_time_ms);
-        }
-    }
-    
-    updateLapDisplay() {
-        const lapList = document.getElementById('laps');
-        
-        if (!lapList) return;
-        
-        if (this.laps.length === 0) {
-            lapList.innerHTML = '<div class="no-laps">No laps recorded yet</div>';
-            return;
-        }
-        
-        // Find best lap
-        const validLaps = this.laps.filter(lap => lap.lap_time_ms > 0);
-        const bestLap = validLaps.length > 0 ? 
-            Math.min(...validLaps.map(lap => lap.lap_time_ms)) : null;
-        
-        lapList.innerHTML = this.laps.slice().reverse().map((lap, index) => {
-            const lapNumber = this.laps.length - index;
-            const isBest = lap.lap_time_ms === bestLap && lap.lap_time_ms > 0;
-            const lapTime = lap.lap_time_ms > 0 ? this.formatTime(lap.lap_time_ms) : '--:--';
-            
-            return `
-                <div class="lap-item ${isBest ? 'best' : ''}">
-                    <div>
-                        <div class="lap-number">Lap ${lapNumber}</div>
-                        <div class="lap-info">Peak: ${lap.rssi_peak || lap.peak_rssi || 0}</div>
-                    </div>
-                    <div class="lap-time">${lapTime}</div>
-                </div>
-            `;
-        }).join('');
-    }
-    
-    updateRaceState(data) {
-        this.raceActive = data.active;
-        
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        
-        startBtn.disabled = this.raceActive;
-        stopBtn.disabled = !this.raceActive;
-    }
-    
     formatTime(milliseconds) {
         const totalSeconds = Math.floor(milliseconds / 1000);
         const minutes = Math.floor(totalSeconds / 60);
@@ -655,11 +446,27 @@ class RaceTimer {
     announceLapTime(lapData) {
         if (!this.speechSynthesis) return;
         
-        const lapNumber = this.laps.length;
-        const lapTime = this.formatTime(lapData.lap_time_ms);
+        // Use lap_number from server data (already 1-based), or calculate from laps array as fallback
+        const lapNumber = lapData.lap_number || this.laps.length;
+        
+        // Format time for speech (natural language, skip 0 minutes)
+        const totalSeconds = Math.floor(lapData.lap_time_ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        const milliseconds = Math.floor((lapData.lap_time_ms % 1000) / 10);
+        
+        let timeText = '';
+        if (minutes > 0) {
+            timeText = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} `;
+        }
+        timeText += `${seconds}`;
+        if (milliseconds > 0) {
+            timeText += ` point ${milliseconds}`;
+        }
+        timeText += ` ${seconds === 1 ? 'second' : 'seconds'}`;
         
         // Create speech text
-        let speechText = `Lap ${lapNumber}, ${lapTime}`;
+        let speechText = `Lap ${lapNumber}, ${timeText}`;
         
         // Add context about lap performance
         if (lapNumber > 1) {

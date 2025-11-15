@@ -87,6 +87,46 @@ cd StarForgeOS/test
 pio test -e test-esp32-s3-touch -f test_lcd
 ```
 
+### 5. Protocol Tests (`test_protocol/`)
+
+Tests RotorHazard protocol implementation:
+
+- **Protocol Format**: Validates command/response format
+- **Checksum Validation**: Tests data integrity
+- **Binary Responses**: Validates protocol-only responses
+- **Command Sequences**: Tests rapid command handling
+
+**Run command:**
+```bash
+cd StarForgeOS/test
+pio test -e test-esp32-c3 -f test_protocol
+```
+
+### 6. Silent Mode Tests (`test_silent/`)
+
+**CRITICAL:** Verifies NO debug output in RotorHazard mode:
+
+- **Silent Config Loading**: Tests config loading before mode detection
+- **Silent Mode Detection**: Verifies no output during mode determination
+- **Binary Protocol Only**: Validates no text in responses
+- **Boot Sequence**: Tests minimal output strategy
+
+**Run command (unit tests, no hardware):**
+```bash
+cd StarForgeOS/test
+pio test -e test-esp32-c3 -f test_silent
+```
+
+**Run command (hardware integration test):**
+```bash
+cd StarForgeOS/test
+./run_tests_simple.sh silent /dev/ttyUSB0
+# Or directly:
+python3 tools/test_silent_rotorhazard.py /dev/ttyUSB0
+```
+
+**⚠️ CRITICAL:** RotorHazard mode must be completely silent - any `Serial.print()` statements will break the binary protocol! See [SILENT_MODE_TESTING.md](SILENT_MODE_TESTING.md) for details.
+
 ## Running Tests
 
 ### Prerequisites

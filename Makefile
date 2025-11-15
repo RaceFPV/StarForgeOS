@@ -25,6 +25,7 @@ help:
 	@echo ""
 	@echo "  Integration:"
 	@echo "    make test-rotorhazard PORT=<port> BOARD=<env> - Test with mock RotorHazard"
+	@echo "    make test-silent PORT=<port>                   - Test silent RotorHazard mode"
 	@echo ""
 	@echo "  Documentation:"
 	@echo "    make docs              - Open test documentation"
@@ -44,6 +45,7 @@ help:
 	@echo "    make upload BOARD=esp32dev"
 	@echo "    make test-board BOARD=test-esp32-c3"
 	@echo "    make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32dev"
+	@echo "    make test-silent PORT=/dev/ttyUSB0"
 	@echo ""
 
 # Quick test - build only (no hardware required)
@@ -211,4 +213,17 @@ endif
 	@echo "🔌 Running RotorHazard integration test..."
 	@chmod +x test/tools/test_rotorhazard_integration.sh
 	@./test/tools/test_rotorhazard_integration.sh $(PORT) $(BOARD)
+
+# Test silent RotorHazard operation (CRITICAL - no debug output allowed)
+test-silent:
+ifndef PORT
+	@echo "❌ Error: PORT not specified"
+	@echo "Usage: make test-silent PORT=/dev/ttyUSB0"
+	@echo "Example: make test-silent PORT=COM3"
+	@exit 1
+endif
+	@echo "🔇 Testing Silent RotorHazard Mode on $(PORT)..."
+	@echo "⚠️  CRITICAL: This verifies NO debug output breaks the protocol"
+	@chmod +x test/tools/test_silent_rotorhazard.py
+	@python3 test/tools/test_silent_rotorhazard.py $(PORT)
 
