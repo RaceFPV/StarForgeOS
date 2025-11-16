@@ -26,6 +26,7 @@ private:
     std::vector<LapData> _laps;
     bool _raceActive = false;
     uint32_t _raceStartTime = 0;
+    uint32_t _bestLapTimeMs = 0;  // Track best lap time for announcements
     
     // Web server task
     TaskHandle_t _webTaskHandle;
@@ -65,6 +66,7 @@ private:
     void handleRoot();
     void handleGetStatus();
     void handleGetLaps();
+    void handleGetConfig();  // Debug endpoint to view config.json
     void handleStartRace();
     void handleStopRace();
     void handleClearLaps();

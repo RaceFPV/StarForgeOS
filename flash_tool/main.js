@@ -390,19 +390,53 @@ function findEsptool() {
 }
 
 // Generate SPIFFS partition with custom config
-async function generateCustomSPIFFS(customConfig) {
+// Uses the same approach as PlatformIO: copy files from data/ directory and add config.json
+async function generateCustomSPIFFS(customConfig, firmwarePath = null) {
   const tempDir = app.getPath('temp');
   const configJsonPath = path.join(tempDir, 'sfos_custom_config.json');
   const spiffsImagePath = path.join(tempDir, 'custom_spiffs.bin');
   
-  // Write config.json
-  await fs.writeFile(configJsonPath, JSON.stringify(customConfig, null, 2));
+  // Ensure default_mode is always present and valid
+  if (!customConfig.default_mode) {
+    customConfig.default_mode = 'standalone';  // Safe default
+  }
+  
+  // Normalize default_mode value
+  const defaultMode = String(customConfig.default_mode).toLowerCase().trim();
+  if (defaultMode === 'standalone' || defaultMode === 'rotorhazard') {
+    customConfig.default_mode = defaultMode;
+  } else {
+    console.warn(`Invalid default_mode value: ${customConfig.default_mode}, defaulting to 'standalone'`);
+    customConfig.default_mode = 'standalone';
+  }
+  
+  // Write config.json with proper formatting
+  const configJson = JSON.stringify(customConfig, null, 2);
+  await fs.writeFile(configJsonPath, configJson);
+  
+  // Log what we're writing (for debugging)
+  console.log('Writing config.json:', configJson);
   
   // Run Python script to generate SPIFFS
   const scriptPath = path.join(__dirname, 'resources', 'scripts', 'generate_spiffs.py');
   
+  // Determine resources path for bundled binaries
+  let resourcesBinPath;
+  if (app.isPackaged) {
+    resourcesBinPath = path.join(process.resourcesPath, 'resources', 'bin');
+  } else {
+    resourcesBinPath = path.join(__dirname, 'resources', 'bin');
+  }
+  
   return new Promise((resolve, reject) => {
-    const python = spawn('python3', [scriptPath, configJsonPath, spiffsImagePath]);
+    // Pass resources path via environment variable so Python script can find bundled mkspiffs
+    const env = { ...process.env, ELECTRON_RESOURCES_PATH: resourcesBinPath };
+    // Pass firmware path as optional third argument to find data/ directory
+    const pythonArgs = [scriptPath, configJsonPath, spiffsImagePath];
+    if (firmwarePath) {
+      pythonArgs.push(firmwarePath);
+    }
+    const python = spawn('python3', pythonArgs, { env });
     
     let output = '';
     
@@ -427,7 +461,12 @@ async function generateCustomSPIFFS(customConfig) {
     python.on('error', (err) => {
       // Try 'python' instead of 'python3'
       if (err.code === 'ENOENT') {
-        const pythonAlt = spawn('python', [scriptPath, configJsonPath, spiffsImagePath]);
+        const env = { ...process.env, ELECTRON_RESOURCES_PATH: resourcesBinPath };
+        const pythonArgs = [scriptPath, configJsonPath, spiffsImagePath];
+        if (firmwarePath) {
+          pythonArgs.push(firmwarePath);
+        }
+        const pythonAlt = spawn('python', pythonArgs, { env });
         
         pythonAlt.stdout.on('data', (data) => console.log(data.toString()));
         pythonAlt.stderr.on('data', (data) => console.error(data.toString()));
@@ -450,6 +489,88 @@ async function generateCustomSPIFFS(customConfig) {
   });
 }
 
+// Helper function to find firmware files in PlatformIO build directories
+async function findFirmwareFiles(firmwarePath, boardType, progressCallback = null) {
+  const fsSync = require('fs');
+  const files = {
+    bootloader: null,
+    partitions: null,
+    firmware: null,
+    spiffs: null
+  };
+  
+  // First, check if files are directly in the firmwarePath (for downloaded releases)
+  const directPaths = {
+    bootloader: path.join(firmwarePath, 'bootloader.bin'),
+    partitions: path.join(firmwarePath, 'partitions.bin'),
+    firmware: path.join(firmwarePath, 'firmware.bin'),
+    spiffs: path.join(firmwarePath, 'spiffs.bin')
+  };
+  
+  let foundAny = false;
+  Object.keys(directPaths).forEach(key => {
+    if (fsSync.existsSync(directPaths[key])) {
+      files[key] = directPaths[key];
+      foundAny = true;
+    }
+  });
+  
+  // If files found directly, return them
+  if (foundAny) {
+    return files;
+  }
+  
+  // Otherwise, search for PlatformIO build directories
+  const pioBuildPath = path.join(firmwarePath, '.pio', 'build');
+  if (fsSync.existsSync(pioBuildPath)) {
+    try {
+      const buildDirs = await fs.readdir(pioBuildPath);
+      
+      // Look for build directory matching board type or any build directory
+      let searchDirs = buildDirs.filter(dir => {
+        const dirPath = path.join(pioBuildPath, dir);
+        return fsSync.statSync(dirPath).isDirectory();
+      });
+      
+      // Prefer directory matching board type
+      const matchingDir = searchDirs.find(dir => dir.includes(boardType.replace('esp32-', '')));
+      if (matchingDir) {
+        searchDirs = [matchingDir, ...searchDirs.filter(d => d !== matchingDir)];
+      }
+      
+      // Search in each build directory
+      for (const buildDir of searchDirs) {
+        const buildDirPath = path.join(pioBuildPath, buildDir);
+        const buildFiles = {
+          bootloader: path.join(buildDirPath, 'bootloader.bin'),
+          partitions: path.join(buildDirPath, 'partitions.bin'),
+          firmware: path.join(buildDirPath, 'firmware.bin'),
+          spiffs: path.join(buildDirPath, 'spiffs.bin')
+        };
+        
+        let foundInDir = false;
+        Object.keys(buildFiles).forEach(key => {
+          if (fsSync.existsSync(buildFiles[key])) {
+            files[key] = buildFiles[key];
+            foundInDir = true;
+          }
+        });
+        
+        if (foundInDir) {
+          if (progressCallback) {
+            progressCallback(`✓ Found firmware files in: .pio/build/${buildDir}/\n`);
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      // Ignore errors, will fall through to error handling
+    }
+  }
+  
+  return files;
+}
+
 // Flash firmware using esptool.py
 ipcMain.handle('flash-firmware', async (event, options) => {
   const { port, boardType, firmwarePath, baudRate = 921600, customConfig = null } = options;
@@ -468,6 +589,14 @@ ipcMain.handle('flash-firmware', async (event, options) => {
       return;
     }
     
+    // Find firmware files (check direct path and PlatformIO build directories)
+    event.sender.send('flash-progress', `\n=== Searching for firmware files ===\n`);
+    event.sender.send('flash-progress', `Looking in: ${firmwarePath}\n`);
+    
+    const files = await findFirmwareFiles(firmwarePath, boardType, (msg) => {
+      event.sender.send('flash-progress', msg);
+    });
+    
     // Build esptool.py command
     const args = [
       '--chip', config.chip,
@@ -479,33 +608,73 @@ ipcMain.handle('flash-firmware', async (event, options) => {
     ];
     
     // Add flash addresses and files
-    const files = {
-      bootloader: path.join(firmwarePath, 'bootloader.bin'),
-      partitions: path.join(firmwarePath, 'partitions.bin'),
-      firmware: path.join(firmwarePath, 'firmware.bin'),
-      spiffs: path.join(firmwarePath, 'spiffs.bin')
-    };
-    
-    // Check which files exist and add them
+    let fileCount = 0;
     Object.keys(files).forEach(key => {
-      if (require('fs').existsSync(files[key])) {
+      if (files[key] && require('fs').existsSync(files[key])) {
+        // Always include spiffs.bin - we'll overwrite it with custom SPIFFS if needed
         args.push(config.flashAddresses[key], files[key]);
+        fileCount++;
+        event.sender.send('flash-progress', `✓ Found ${key}.bin\n`);
       }
     });
     
-    // If custom config is provided, generate and add custom SPIFFS
+    // Validate that we found at least some firmware files
+    if (fileCount === 0) {
+      const errorMsg = `No firmware files found!\n\n` +
+        `Expected files:\n` +
+        `  - firmware.bin (required)\n` +
+        `  - bootloader.bin\n` +
+        `  - partitions.bin\n` +
+        `  - spiffs.bin\n\n` +
+        `Searched in:\n` +
+        `  - ${firmwarePath}\n` +
+        `  - ${path.join(firmwarePath, '.pio', 'build', '*')}\n\n` +
+        `For PlatformIO builds, select the repo root folder.\n` +
+        `For releases, select the extracted firmware folder.`;
+      event.sender.send('flash-progress', `\n✗ ${errorMsg}\n`);
+      reject(new Error(errorMsg));
+      return;
+    }
+    
+    if (!files.firmware) {
+      const errorMsg = 'firmware.bin is required but not found!';
+      event.sender.send('flash-progress', `\n✗ ${errorMsg}\n`);
+      reject(new Error(errorMsg));
+      return;
+    }
+    
+    // Generate and add custom SPIFFS with default_mode (only if customConfig provided)
+    // If no customConfig, use the default spiffs.bin from PlatformIO (which works!)
     if (customConfig) {
       try {
-        event.sender.send('flash-progress', '\n=== Generating custom config SPIFFS ===\n');
-        const customSPIFFSPath = await generateCustomSPIFFS(customConfig);
-        event.sender.send('flash-progress', `✓ Custom SPIFFS generated: ${customSPIFFSPath}\n`);
+        event.sender.send('flash-progress', '\n=== Generating config SPIFFS with default mode ===\n');
+        // Pass firmware path to find data/ directory (same as PlatformIO uploadfs)
+        const customSPIFFSPath = await generateCustomSPIFFS(customConfig, firmwarePath);
+        event.sender.send('flash-progress', `✓ Config SPIFFS generated: ${customSPIFFSPath}\n`);
         
-        // Add custom SPIFFS to flash command (overwrites default spiffs)
-        args.push(config.flashAddresses.spiffs, customSPIFFSPath);
+        // Replace the default spiffs.bin with our custom one (same address, so it overwrites)
+        // Find and replace the spiffs entry in args
+        const spiffsIndex = args.indexOf(config.flashAddresses.spiffs);
+        if (spiffsIndex !== -1 && spiffsIndex + 1 < args.length) {
+          args[spiffsIndex + 1] = customSPIFFSPath; // Replace the file path
+          event.sender.send('flash-progress', `✓ Custom SPIFFS will replace default at ${config.flashAddresses.spiffs}\n`);
+        } else {
+          // If spiffs wasn't found, add it
+          args.push(config.flashAddresses.spiffs, customSPIFFSPath);
+          event.sender.send('flash-progress', `✓ Custom SPIFFS will be flashed at ${config.flashAddresses.spiffs}\n`);
+        }
       } catch (error) {
-        event.sender.send('flash-progress', `⚠ Custom SPIFFS generation failed: ${error.message}\n`);
-        event.sender.send('flash-progress', 'Continuing with standard firmware (no custom pins)\n');
+        event.sender.send('flash-progress', `\n⚠ Config SPIFFS generation failed: ${error.message}\n`);
+        if (error.message.includes('Permission denied') || error.message.includes('PermissionError')) {
+          event.sender.send('flash-progress', '\n⚠ Permission error with mkspiffs!\n');
+          event.sender.send('flash-progress', 'Try running: chmod +x ~/.platformio/packages/tool-mkspiffs/mkspiffs\n');
+          event.sender.send('flash-progress', 'Or reinstall PlatformIO to fix permissions\n');
+        }
+        event.sender.send('flash-progress', '\n⚠ Continuing with standard firmware (default mode will NOT be set)\n');
+        event.sender.send('flash-progress', '⚠ The device will use default mode from config.h (RotorHazard)\n');
       }
+    } else {
+      event.sender.send('flash-progress', '⚠ Warning: No config provided - default mode will not be set!\n');
     }
     
     // Spawn esptool

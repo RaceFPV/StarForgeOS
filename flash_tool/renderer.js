@@ -390,9 +390,14 @@ function loadPinPreset() {
 function getCustomPinConfig() {
   const config = {};
   
-  // Always include default mode setting
+  // Always include default mode setting (required for mode selection)
   const defaultMode = document.getElementById('default-mode').value;
-  config.default_mode = defaultMode;
+  if (defaultMode) {
+    config.default_mode = defaultMode;
+  } else {
+    // Fallback to standalone if not set (shouldn't happen, but be safe)
+    config.default_mode = 'standalone';
+  }
   
   // Include custom pins if enabled
   if (customPinsEnabled) {
@@ -406,7 +411,8 @@ function getCustomPinConfig() {
     };
   }
   
-  return Object.keys(config).length > 0 ? config : null;
+  // Always return config since default_mode is always set
+  return config;
 }
 
 // Initialize when DOM is ready

@@ -118,7 +118,12 @@ void setup() {
   // CRITICAL: Determine operating mode FIRST before any Serial output
   // Load default mode from config.json (if available) - this function is SILENT
   String defaultModeStr = ConfigLoader::loadDefaultMode();
+  defaultModeStr.toLowerCase();  // Normalize to lowercase for case-insensitive comparison
+  defaultModeStr.trim();  // Remove any whitespace
   OperationMode defaultMode = (defaultModeStr == "rotorhazard") ? MODE_ROTORHAZARD : MODE_STANDALONE;
+  
+  // Store for debug output later (only shown in standalone mode)
+  String loadedDefaultMode = defaultModeStr;
   
   // Load custom pin configuration from SPIFFS (if available)
   // This must happen BEFORE any pins are used or modes are initialized
@@ -220,15 +225,35 @@ void setup() {
     
     Serial.println("Mode: STANDALONE/WIFI");
     
+    // Debug: Dump config.json contents if it exists
+    if (SPIFFS.begin(false)) {
+        if (SPIFFS.exists("/config.json")) {
+            File configFile = SPIFFS.open("/config.json", "r");
+            if (configFile) {
+                Serial.println("\n=== config.json contents ===");
+                while (configFile.available()) {
+                    Serial.write(configFile.read());
+                }
+                Serial.println("\n============================\n");
+                configFile.close();
+            }
+        } else {
+            Serial.println("config.json not found in SPIFFS");
+        }
+    }
+    
 #if ENABLE_LCD_UI
     Serial.println("Touch board detected: Mode switch via LCD UI");
-    Serial.printf("Default mode from config: %s\n", (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD");
+    Serial.printf("Default mode from config: %s (loaded value: '%s')\n", 
+                  (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD",
+                  loadedDefaultMode.c_str());
 #else
     if (mode_switch_state == LOW) {
       Serial.println("Mode switch LOW - forced STANDALONE mode");
     } else {
-      Serial.printf("Mode switch HIGH - using default mode: %s\n", 
-                    (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD");
+      Serial.printf("Mode switch HIGH - using default mode: %s (loaded value: '%s')\n", 
+                    (defaultMode == MODE_STANDALONE) ? "STANDALONE" : "ROTORHAZARD",
+                    loadedDefaultMode.c_str());
     }
 #endif
     

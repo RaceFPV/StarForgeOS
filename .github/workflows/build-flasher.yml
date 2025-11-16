@@ -53,12 +53,72 @@ jobs:
           exit 1
         fi
     
+    - name: Download mkspiffs binaries
+      working-directory: flash_tool
+      shell: bash
+      run: |
+        if [ -f "download-mkspiffs.sh" ]; then
+          chmod +x download-mkspiffs.sh
+          ./download-mkspiffs.sh
+        else
+          echo "mkspiffs download script not found"
+          exit 1
+        fi
+        # For cross-platform builds, download all platform binaries
+        # macOS runner downloads macOS binary, Windows runner downloads Windows binary
+        # But we need both for universal builds, so download all platforms
+        echo "Downloading all platform binaries for universal build..."
+        MKSPIFFS_VERSION="0.2.3"
+        BASE_URL="https://github.com/igrr/mkspiffs/releases/download/${MKSPIFFS_VERSION}"
+        RESOURCES_DIR="resources/bin"
+        mkdir -p "$RESOURCES_DIR"
+        
+        # Download macOS binary
+        if [ ! -f "$RESOURCES_DIR/mkspiffs-macos" ]; then
+          curl -L "${BASE_URL}/mkspiffs-${MKSPIFFS_VERSION}-arduino-esp32-osx.tar.gz" -o /tmp/mkspiffs-macos.tar.gz
+          tar -xzf /tmp/mkspiffs-macos.tar.gz -C /tmp
+          cp $(find /tmp -name "mkspiffs" -type f | head -1) "$RESOURCES_DIR/mkspiffs-macos" 2>/dev/null || true
+          chmod +x "$RESOURCES_DIR/mkspiffs-macos" 2>/dev/null || true
+          rm -rf /tmp/mkspiffs* 2>/dev/null || true
+        fi
+        
+        # Download Windows binary
+        if [ ! -f "$RESOURCES_DIR/mkspiffs-win64.exe" ]; then
+          curl -L "${BASE_URL}/mkspiffs-${MKSPIFFS_VERSION}-arduino-esp32-win32.zip" -o /tmp/mkspiffs-win.zip
+          unzip -o -q /tmp/mkspiffs-win.zip -d /tmp
+          cp $(find /tmp -name "mkspiffs.exe" -o -name "mkspiffs" | head -1) "$RESOURCES_DIR/mkspiffs-win64.exe" 2>/dev/null || true
+          rm -rf /tmp/mkspiffs* 2>/dev/null || true
+        fi
+        
+        # Download Linux binary
+        if [ ! -f "$RESOURCES_DIR/mkspiffs-linux" ]; then
+          curl -L "${BASE_URL}/mkspiffs-${MKSPIFFS_VERSION}-arduino-esp32-linux64.tar.gz" -o /tmp/mkspiffs-linux.tar.gz
+          tar -xzf /tmp/mkspiffs-linux.tar.gz -C /tmp
+          cp $(find /tmp -name "mkspiffs" -type f | head -1) "$RESOURCES_DIR/mkspiffs-linux" 2>/dev/null || true
+          chmod +x "$RESOURCES_DIR/mkspiffs-linux" 2>/dev/null || true
+          rm -rf /tmp/mkspiffs* 2>/dev/null || true
+        fi
+        
+        echo "mkspiffs binaries ready:"
+        ls -lh "$RESOURCES_DIR"/mkspiffs-* 2>/dev/null || echo "No binaries found"
+    
     - name: Build Electron app (macOS)
       if: matrix.os == 'macos-latest'
       working-directory: flash_tool
       run: npm run build:mac
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Disable code signing for CI builds (requires Apple Developer account for proper signing)
+        CSC_IDENTITY_AUTO_DISCOVERY: false
+    
+    - name: Ad-hoc sign macOS app bundles
+      if: matrix.os == 'macos-latest'
+      working-directory: flash_tool
+      shell: bash
+      run: |
+        # Ad-hoc sign any .app bundles to help with Gatekeeper
+        # This doesn't fully solve the issue but helps
+        find dist -name "*.app" -exec codesign --force --deep --sign - {} \;
     
     - name: Build Electron app (Windows)
       if: matrix.os == 'windows-latest'

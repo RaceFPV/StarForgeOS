@@ -185,8 +185,15 @@ bool ConfigLoader::hasCustomConfig() {
 String ConfigLoader::loadDefaultMode() {
     // Initialize SPIFFS if not already mounted
     // IMPORTANT: No Serial output here - might be in RotorHazard mode
-    if (!SPIFFS.begin(true)) {
-        return "rotorhazard";
+    // Use begin(false) to avoid formatting SPIFFS if mount fails (preserves flashed config)
+    bool spiffsMounted = SPIFFS.begin(false);
+    if (!spiffsMounted) {
+        // If mount fails, try with format as last resort (but this will erase config)
+        // This should rarely happen if SPIFFS was flashed correctly
+        spiffsMounted = SPIFFS.begin(true);
+        if (!spiffsMounted) {
+            return "rotorhazard";
+        }
     }
     
     // Check if config file exists
@@ -200,19 +207,34 @@ String ConfigLoader::loadDefaultMode() {
         return "rotorhazard";
     }
     
+    // Get file size to ensure we read it correctly
+    size_t fileSize = configFile.size();
+    if (fileSize == 0 || fileSize > 2048) {
+        configFile.close();
+        return "rotorhazard";
+    }
+    
     // Parse JSON
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(2048);  // Increased size to handle larger configs
     DeserializationError error = deserializeJson(doc, configFile);
     configFile.close();
     
     if (error) {
+        // JSON parsing failed - return default
         return "rotorhazard";
     }
     
     // Load default mode setting
     if (doc.containsKey("default_mode")) {
         String mode = doc["default_mode"].as<String>();
-        return mode;
+        // Normalize to lowercase for case-insensitive comparison
+        mode.toLowerCase();
+        // Trim whitespace
+        mode.trim();
+        // Validate: must be "rotorhazard" or "standalone"
+        if (mode == "rotorhazard" || mode == "standalone") {
+            return mode;
+        }
     }
     
     return "rotorhazard";

@@ -14,7 +14,10 @@ Go to the [latest release](https://github.com/RaceFPV/StarForgeOS/releases/lates
 **macOS:**
 1. Download the `.dmg` file
 2. Open it and drag "StarForge Flasher" to Applications
-3. Launch from Applications (first time: Right-click → Open to bypass Gatekeeper)
+3. **If you see "app is damaged" error:**
+   - Open Terminal and run: `xattr -cr /Applications/StarForge\ Flash\ Tool.app`
+   - Or right-click the app → Open (first time only)
+4. Launch from Applications
 
 **Windows:**
 1. Download the `.exe` file
@@ -166,10 +169,14 @@ npm run build:win
 ```
 
 Without signing:
-- **macOS**: Users will see "unidentified developer" warning
+- **macOS**: Users may see "app is damaged" error due to Gatekeeper. Workaround:
+  ```bash
+  xattr -cr /Applications/StarForge\ Flash\ Tool.app
+  ```
+  Or right-click → Open on first launch.
 - **Windows**: SmartScreen warning on first run
 
-Both can be bypassed by users, but signing provides a better experience.
+**Note:** The latest macOS versions are stricter about unsigned apps. For production releases, proper code signing with an Apple Developer account ($99/year) is strongly recommended to avoid user friction.
 
 ---
 
@@ -195,6 +202,25 @@ npm run build:win
 cd flash_tool
 ./download-esptool.sh
 ```
+
+### macOS: "App is damaged and cannot be opened"
+This happens because the app isn't code signed (Gatekeeper security). Fix:
+
+**Option 1 (Recommended):** Remove quarantine attribute
+```bash
+xattr -cr /Applications/StarForge\ Flash\ Tool.app
+```
+
+**Option 2:** Right-click the app → Open (first time only)
+
+**Option 3:** Allow in System Settings
+1. System Settings → Privacy & Security
+2. Scroll to "Security" section
+3. Click "Open Anyway" if shown
+
+**Why this happens:** macOS Gatekeeper blocks unsigned apps downloaded from the internet. The app is safe, but macOS requires either:
+- Code signing with Apple Developer certificate (requires $99/year account)
+- Manual user approval (the workarounds above)
 
 ### Can't build Windows on Mac
 This should work, but if it fails:

@@ -81,6 +81,11 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _server.on("/", HTTP_GET, [this]() { handleRoot(); });
     _server.on("/api/status", HTTP_GET, [this]() { handleGetStatus(); });
     _server.on("/api/laps", HTTP_GET, [this]() { handleGetLaps(); });
+    // Register /api/config route - use lambda like other routes
+    _server.on("/api/config", HTTP_GET, [this]() { 
+        Serial.println("DEBUG: /api/config route handler called via lambda");
+        handleGetConfig(); 
+    });
     _server.on("/api/start_race", HTTP_POST, [this]() { handleStartRace(); });
     _server.on("/api/stop_race", HTTP_POST, [this]() { handleStopRace(); });
     _server.on("/api/clear_laps", HTTP_POST, [this]() { handleClearLaps(); });
@@ -90,6 +95,9 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _server.on("/style.css", HTTP_GET, [this]() { handleStyleCSS(); });
     _server.on("/app.js", HTTP_GET, [this]() { handleAppJS(); });
     _server.onNotFound([this]() { handleNotFound(); });
+    
+    Serial.println("DEBUG: Web server routes registered");
+    Serial.println("DEBUG: /api/config route registered");
     
     _server.begin();
     Serial.println("Web server started");
@@ -186,6 +194,16 @@ void StandaloneMode::process() {
             return;  // Skip this lap
         }
         
+        // Calculate lap time (difference from previous lap or race start)
+        uint32_t lapTimeMs = 0;
+        if (_laps.size() == 0) {
+            // First lap: time from race start
+            lapTimeMs = lap.timestamp_ms - _raceStartTime;
+        } else {
+            // Subsequent laps: time since previous lap
+            lapTimeMs = lap.timestamp_ms - _laps.back().timestamp_ms;
+        }
+        
         // Store lap in our internal list (simple vector)
         _laps.push_back(lap);
         
@@ -194,7 +212,8 @@ void StandaloneMode::process() {
             _laps.erase(_laps.begin());
         }
         
-        Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
+        Serial.printf("Lap recorded: %dms, RSSI: %d, Lap time: %dms\n", 
+                     lap.timestamp_ms, lap.rssi_peak, lapTimeMs);
         
 #if ENABLE_LCD_UI
         // Update LCD lap count
@@ -203,8 +222,14 @@ void StandaloneMode::process() {
         }
         
 #if ENABLE_AUDIO
-        // Speak lap announcement with time
-        speakLapAnnouncement(_laps.size(), lap.timestamp_ms);
+        // Only announce if this is a faster/best lap
+        // First lap is always announced, or if this lap is faster than previous best
+        bool isBestLap = (_bestLapTimeMs == 0) || (lapTimeMs < _bestLapTimeMs);
+        
+        if (isBestLap) {
+            _bestLapTimeMs = lapTimeMs;  // Update best lap time
+            speakLapAnnouncement(_laps.size(), lapTimeMs);
+        }
 #endif
 #endif
     }
@@ -298,6 +323,30 @@ void StandaloneMode::handleRoot() {
     _server.sendHeader("Pragma", "no-cache");
     _server.sendHeader("Expires", "0");
     
+    // Debug: Check SPIFFS mount status
+    bool spiffsOk = SPIFFS.begin(false);
+    if (!spiffsOk) {
+        Serial.println("ERROR: SPIFFS not mounted in handleRoot()");
+        _server.send(500, "text/plain", "SPIFFS not mounted");
+        return;
+    }
+    
+    // Debug: List all files in SPIFFS
+    Serial.println("DEBUG: Listing SPIFFS files:");
+    File root = SPIFFS.open("/");
+    if (!root) {
+        Serial.println("ERROR: Failed to open SPIFFS root");
+    } else if (!root.isDirectory()) {
+        Serial.println("ERROR: SPIFFS root is not a directory");
+    } else {
+        File file = root.openNextFile();
+        while (file) {
+            Serial.printf("  - %s (%d bytes)\n", file.name(), file.size());
+            file = root.openNextFile();
+        }
+    }
+    root.close();
+    
     File file = SPIFFS.open("/index.html", "r");
     if (file && file.size() > 0) {
         Serial.println("Serving index.html from SPIFFS");
@@ -306,6 +355,12 @@ void StandaloneMode::handleRoot() {
         file.close();
     } else {
         Serial.println("index.html not found or empty in SPIFFS");
+        if (!file) {
+            Serial.println("ERROR: Failed to open /index.html");
+        } else {
+            Serial.printf("ERROR: index.html exists but size is %d\n", file.size());
+            file.close();
+        }
         _server.send(404, "text/plain", "index.html not found");
     }
 }
@@ -329,6 +384,41 @@ void StandaloneMode::handleGetStatus() {
     json += "\"frequency\":" + String(frequency) + ",";
     json += "\"threshold\":" + String(threshold) + ",";
     json += "\"crossing\":" + String(crossing ? "true" : "false");
+    
+    // Add config info to status endpoint as well
+    Serial.println("DEBUG: Checking config.json in status endpoint");
+    bool spiffsOk = SPIFFS.begin(false);
+    if (!spiffsOk) {
+        spiffsOk = SPIFFS.begin(true);  // Try with format
+    }
+    if (spiffsOk) {
+        bool configExists = SPIFFS.exists("/config.json");
+        Serial.printf("DEBUG: SPIFFS mounted, config.json exists: %s\n", configExists ? "yes" : "no");
+        json += ",\"config_exists\":" + String(configExists ? "true" : "false");
+        if (configExists) {
+            File configFile = SPIFFS.open("/config.json", "r");
+            if (configFile) {
+                String configContent = configFile.readString();
+                size_t fileSize = configFile.size();
+                configFile.close();
+                Serial.printf("DEBUG: Read config.json, size: %d bytes\n", fileSize);
+                // Escape JSON in the config content for safe embedding
+                configContent.replace("\\", "\\\\");  // Escape backslashes first
+                configContent.replace("\"", "\\\"");  // Escape quotes
+                configContent.replace("\n", "\\n");   // Escape newlines
+                configContent.replace("\r", "\\r");   // Escape carriage returns
+                json += ",\"config_size\":" + String(fileSize);
+                json += ",\"config_content\":\"" + configContent + "\"";
+            } else {
+                Serial.println("DEBUG: Failed to open config.json file");
+                json += ",\"config_error\":\"failed_to_open\"";
+            }
+        }
+    } else {
+        Serial.println("DEBUG: Failed to mount SPIFFS in status endpoint");
+        json += ",\"config_error\":\"spiffs_mount_failed\"";
+    }
+    
     json += "}";
     
     Serial.printf("[API] JSON Response: %s\n", json.c_str());
@@ -360,10 +450,62 @@ void StandaloneMode::handleGetLaps() {
     _server.send(200, "application/json", json);
 }
 
+void StandaloneMode::handleGetConfig() {
+    // Debug endpoint to view config.json from SPIFFS
+    Serial.println("DEBUG: /api/config endpoint called");
+    
+    // SPIFFS should already be mounted from begin(), but ensure it's mounted
+    bool spiffsMounted = SPIFFS.begin(false);
+    if (!spiffsMounted) {
+        // Try mounting with format if it fails
+        spiffsMounted = SPIFFS.begin(true);
+        if (!spiffsMounted) {
+            Serial.println("ERROR: Failed to mount SPIFFS");
+            _server.send(500, "application/json", "{\"error\":\"Failed to mount SPIFFS\"}");
+            return;
+        }
+    }
+    
+    Serial.println("DEBUG: SPIFFS mounted, checking for config.json");
+    
+    if (!SPIFFS.exists("/config.json")) {
+        Serial.println("DEBUG: config.json not found in SPIFFS");
+        _server.send(404, "application/json", "{\"error\":\"config.json not found\",\"spiffs_mounted\":true}");
+        return;
+    }
+    
+    Serial.println("DEBUG: config.json exists, opening file");
+    File configFile = SPIFFS.open("/config.json", "r");
+    if (!configFile) {
+        Serial.println("ERROR: Failed to open config.json");
+        _server.send(500, "application/json", "{\"error\":\"Failed to open config.json\"}");
+        return;
+    }
+    
+    // Read entire file
+    String configContent = configFile.readString();
+    size_t fileSize = configFile.size();
+    configFile.close();
+    
+    Serial.printf("DEBUG: Read config.json, size: %d bytes\n", fileSize);
+    
+    // Send as JSON with metadata
+    String response = "{";
+    response += "\"file_exists\":true,";
+    response += "\"file_size\":" + String(fileSize) + ",";
+    response += "\"raw_content\":";
+    response += configContent;
+    response += "}";
+    
+    _server.send(200, "application/json", response);
+    Serial.println("DEBUG: Sent config.json response");
+}
+
 void StandaloneMode::handleStartRace() {
     _raceActive = true;
     _raceStartTime = millis();
     _laps.clear();
+    _bestLapTimeMs = 0;  // Reset best lap time when starting new race
     
 #if ENABLE_LCD_UI
     if (_lcdUI) {
@@ -391,6 +533,7 @@ void StandaloneMode::handleStopRace() {
 
 void StandaloneMode::handleClearLaps() {
     _laps.clear();
+    _bestLapTimeMs = 0;  // Reset best lap time when clearing laps
     
 #if ENABLE_LCD_UI
     if (_lcdUI) {
@@ -456,6 +599,9 @@ void StandaloneMode::handleAppJS() {
 }
 
 void StandaloneMode::handleNotFound() {
+    String uri = _server.uri();
+    String method = _server.method() == HTTP_GET ? "GET" : "POST";
+    Serial.printf("DEBUG: 404 Not Found - Method: %s, URI: %s\n", method.c_str(), uri.c_str());
     _server.send(404, "text/plain", "File not found");
 }
 
@@ -676,6 +822,7 @@ void StandaloneMode::lcdStartCallback() {
         _lcdInstance->_raceActive = true;
         _lcdInstance->_raceStartTime = millis();
         _lcdInstance->_laps.clear();
+        _lcdInstance->_bestLapTimeMs = 0;  // Reset best lap time when starting new race
         
         if (_lcdInstance->_lcdUI) {
             _lcdInstance->_lcdUI->updateRaceStatus(true);
@@ -701,6 +848,7 @@ void StandaloneMode::lcdStopCallback() {
 void StandaloneMode::lcdClearCallback() {
     if (_lcdInstance) {
         _lcdInstance->_laps.clear();
+        _lcdInstance->_bestLapTimeMs = 0;  // Reset best lap time when clearing laps
         
         if (_lcdInstance->_lcdUI) {
             _lcdInstance->_lcdUI->updateLapCount(0);
