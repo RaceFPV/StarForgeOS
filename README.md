@@ -67,7 +67,6 @@ For detailed technical information, pin configurations, and setup instructions, 
 
 - **[Setup Guide](docs/setup.md)** - Complete installation and configuration
 - **[Hardware Guide](docs/hardware.md)** - PCB design and wiring diagrams
-- **[Display Customization](docs/display_customization.md)** - UI customization options
 
 ## 💾 Flashing Firmware
 
@@ -132,4 +131,5 @@ make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32dev
 Every pull request automatically runs build validation across all board types via GitHub Actions, ensuring no breaking changes.
 
 **📖 Full testing documentation**: See [`test/README.md`](test/README.md) for complete details on the test suite, CI/CD strategy, and contribution guidelines.
+
 
