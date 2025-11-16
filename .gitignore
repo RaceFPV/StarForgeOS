@@ -56,14 +56,16 @@ secrets.h
 credentials.h
 config_local.h
 
+# Node.js / NPM (anywhere in project)
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+
 # Flash Tool (Electron app)
-flash_tool/node_modules/
 flash_tool/dist/
 flash_tool/out/
 flash_tool/firmware-cache/
-flash_tool/.npm/
-flash_tool/package-lock.json
-flash_tool/npm-debug.log*
-flash_tool/yarn-debug.log*
-flash_tool/yarn-error.log*
 
