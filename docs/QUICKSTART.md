@@ -43,9 +43,6 @@ Connect a physical switch between the MODE_SWITCH_PIN and GND:
 ### Option 2: Hardwire to GND
 If you only want WiFi mode, permanently connect MODE_SWITCH_PIN to GND with a wire or jumper.
 
-### Option 3: LCD Touch Button (JC2432W328C only)
-If you have the JC2432W328C board with LCD, you can switch modes using the touchscreen button instead of a physical switch.
-
 **Without a mode switch or jumper to GND, you won't see the WiFi access point or web interface!**
 
 ---
@@ -83,31 +80,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 | Function | GPIO | Notes |
 |----------|------|-------|
 | Mode Switch | GPIO 33 | Connect to GND for WiFi mode |
-
----
-
-### JC2432W328C (ESP32 with ST7789 LCD & Touch)
-
-**RX5808 Connections:**
-| Function | GPIO | Notes |
-|----------|------|-------|
-| RSSI Input | GPIO 35 | ADC1_CH7 - Analog RSSI from RX5808 |
-| DATA (MOSI) | GPIO 21 | SPI Data to RX5808 |
-| CLK (SCK) | GPIO 16 | SPI Clock to RX5808 |
-| SEL (CS/LE) | GPIO 17 | Latch Enable to RX5808 |
-
-**Control:**
-| Function | GPIO | Notes |
-|----------|------|-------|
-| Mode Switch | GPIO 22 | Connect to GND for WiFi mode (or use LCD button) |
-| Power Button | GPIO 22 | Momentary button to GND (long press = sleep) |
-
-**Battery Monitoring (Optional):**
-| Function | GPIO | Notes |
-|----------|------|-------|
-| Battery Sense | GPIO 34 | 2:1 voltage divider (100kΩ + 100kΩ) |
-
-**Circuit:** Battery+ → 100kΩ → GPIO34 → 100kΩ → GND
 
 ---
 
@@ -182,17 +154,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 
 ## 📚 Advanced Features
 
-### Battery Monitoring (JC2432W328C only)
-Install a 2:1 voltage divider on GPIO34 to monitor your 1S LiPo battery:
-- Battery voltage displayed on LCD
-- Percentage indicator
-- Works with WiFi active (no ADC conflicts)
-
-### Power Button (JC2432W328C only)
-- **Short press:** Wake from sleep
-- **Long press (3s):** Enter deep sleep mode
-- Saves battery when not racing
-
 ### RotorHazard Node Mode
 Connect MODE_SWITCH_PIN to 3.3V (or leave floating) to use as a RotorHazard node:
 - Compatible with RotorHazard race timing system
@@ -236,4 +197,5 @@ Connect MODE_SWITCH_PIN to 3.3V (or leave floating) to use as a RotorHazard node
 ```
 
 Happy Racing! 🏁
+
 
