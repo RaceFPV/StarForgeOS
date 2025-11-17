@@ -1101,8 +1101,8 @@ void TimingCore::setupADC_DMA() {
     .bit_width = ADC_BITWIDTH_12,    // 12-bit resolution
   };
   
-  // ESP32-C6 requires TYPE2 format, older chips use TYPE1
-  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // ESP32-C6 and ESP32-S3 require TYPE2 format, older chips use TYPE1
+  #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32S3) || defined(BOARD_ESP32_S3) || defined(BOARD_ESP32_S3_TOUCH)
     adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
   #else
     adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE1;

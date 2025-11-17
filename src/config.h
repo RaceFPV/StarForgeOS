@@ -49,7 +49,8 @@
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
 #elif defined(BOARD_ESP32_S3)
-    // Generic ESP32-S3 DevKitC-1 (USB CDC, dual-core, with PSRAM)
+    // Generic ESP32-S3 DevKitC-1 (USB CDC, dual-core)
+    // Note: PSRAM is optional (only on -N variants of DevKitC-1)
     // Note: ESP32-S3 uses USB CDC for serial communication (like ESP32-C3)
     // Pin mapping compatible with standard ESP32-S3 dev boards
     #define RSSI_INPUT_PIN      4     // GPIO4 (ADC1_CH3) - RSSI input from RX5808
