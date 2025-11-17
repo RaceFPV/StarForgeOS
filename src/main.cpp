@@ -12,6 +12,8 @@
     #pragma message "BUILD: Waveshare ESP32-S3-Touch-LCD-2 detected"
 #elif defined(BOARD_JC2432W328C)
     #pragma message "BUILD: JC2432W328C detected"
+#elif defined(BOARD_ESP32_S3)
+    #pragma message "BUILD: ESP32-S3 DevKitC-1 detected"
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
     #pragma message "BUILD: ESP32-C6 detected"
 #elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
@@ -211,6 +213,8 @@ void setup() {
     Serial.printf("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
 #elif defined(BOARD_JC2432W328C)
     Serial.println("Board: JC2432W328C");
+#elif defined(BOARD_ESP32_S3)
+    Serial.println("Board: ESP32-S3 DevKitC-1");
 #else
     Serial.println("Board: Generic ESP32");
 #endif

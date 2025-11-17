@@ -37,7 +37,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     analogSetPinAttenuation(g_battery_adc_pin, ADC_11db);  // 0-3.3V range
     
     // Set ADC resolution (ESP32-S3 uses analogReadResolution instead of analogSetWidth)
-    #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_ESP32S3_DEV)
+    #if defined(BOARD_ESP32_S3) || defined(BOARD_ESP32_S3_TOUCH)
         analogReadResolution(12);  // 12-bit resolution (0-4095) for ESP32-S3
     #else
         analogSetWidth(12);  // 12-bit resolution (0-4095) for ESP32

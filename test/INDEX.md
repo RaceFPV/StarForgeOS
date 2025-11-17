@@ -68,8 +68,8 @@ Tests RotorHazard binary protocol implementation.
 | ESP32-C6 | Single-core RISC-V | WiFi 6, USB-CDC | ✅ Tested |
 | ESP32 | Dual-core Xtensa | Standard | ✅ Tested |
 | ESP32-S2 | Single-core Xtensa | USB-CDC | ✅ Tested |
-| ESP32-S3 | Dual-core Xtensa | PSRAM, USB-CDC | ✅ Tested |
-| ESP32-S3-Touch | Dual-core Xtensa | LCD + Touch | ✅ Tested |
+| ESP32-S3 | Dual-core Xtensa | PSRAM, USB-CDC, DevKitC-1 | ✅ Tested |
+| ESP32-S3-Touch | Dual-core Xtensa | LCD + Touch (Waveshare) | ✅ Tested |
 | JC2432W328C | Dual-core Xtensa | LCD + Touch | ✅ Tested |
 
 ## 📊 Statistics

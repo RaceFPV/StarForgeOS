@@ -48,6 +48,17 @@
     // BATTERY_ADC_PIN is defined later in the LCD UI section (GPIO34, repurposed from light sensor)
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
+#elif defined(BOARD_ESP32_S3)
+    // Generic ESP32-S3 DevKitC-1 (USB CDC, dual-core, with PSRAM)
+    // Note: ESP32-S3 uses USB CDC for serial communication (like ESP32-C3)
+    // Pin mapping compatible with standard ESP32-S3 dev boards
+    #define RSSI_INPUT_PIN      4     // GPIO4 (ADC1_CH3) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     11    // GPIO11 (MOSI) - DATA to RX5808
+    #define RX5808_CLK_PIN      12    // GPIO12 (SCK) - CLK to RX5808
+    #define RX5808_SEL_PIN      10    // GPIO10 (CS) - LE (Latch Enable) to RX5808
+    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (with internal pullup)
+    #define USE_DMA_ADC         1     // Enabled for best RSSI performance
+    #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
     // Pin mapping compatible with standard ESP32 dev boards
@@ -78,7 +89,7 @@
 #define MIN_LAP_TIME_MS     3000  // Minimum time between laps (3 seconds) - prevents false laps from threshold bouncing
 
 // FreeRTOS task priorities
-// Note: ESP32-D0WD (dual core) can run timing + web server concurrently
+// Note: ESP32-D0WD and ESP32-S3 (dual core) can run timing + web server concurrently
 //       ESP32-C3/C6 (single core) shares CPU time between tasks
 #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     #define TIMING_PRIORITY     3     // High priority for timing (critical on single core)

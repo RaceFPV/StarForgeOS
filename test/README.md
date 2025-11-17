@@ -10,8 +10,8 @@ This test suite validates the following ESP32 variants:
 - **ESP32-C6** (WiFi 6, single-core RISC-V, USB-CDC)
 - **ESP32** (dual-core Xtensa, Generic DevKit)
 - **ESP32-S2** (single-core Xtensa, USB-CDC)
-- **ESP32-S3** (dual-core Xtensa, PSRAM)
-- **ESP32-S3-Touch** (Waveshare LCD board)
+- **ESP32-S3** (dual-core Xtensa, PSRAM, USB-CDC, DevKitC-1)
+- **ESP32-S3-Touch** (Waveshare LCD board with integrated display)
 - **JC2432W328C** (ESP32 with LCD/Touch)
 
 ## Test Categories

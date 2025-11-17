@@ -317,8 +317,10 @@ void test_board_identification(void) {
     #elif defined(TEST_JC2432W328C) || defined(BOARD_JC2432W328C)
         TEST_MESSAGE("Board identified: JC2432W328C");
         TEST_ASSERT_TRUE(ENABLE_LCD_UI == 1);
-    #elif defined(TEST_ESP32_S3)
-        TEST_MESSAGE("Board identified: ESP32-S3");
+    #elif defined(TEST_ESP32_S3) || defined(BOARD_ESP32_S3)
+        TEST_MESSAGE("Board identified: ESP32-S3 DevKitC-1");
+        TEST_ASSERT_TRUE(RSSI_INPUT_PIN == 4);
+        TEST_ASSERT_TRUE(ENABLE_LCD_UI == 0);
     #elif defined(TEST_ESP32_S2)
         TEST_MESSAGE("Board identified: ESP32-S2");
     #elif defined(TEST_ESP32)
