@@ -6,6 +6,9 @@
 #include "node_mode.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
+#if defined(BOARD_ESP32_S3) || defined(BOARD_ESP32_S3_TOUCH) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#include "esp_task_wdt.h"
+#endif
 
 // Compile-time board detection verification
 #if defined(BOARD_ESP32_S3_TOUCH)
@@ -102,6 +105,25 @@ void requestModeChange(OperationMode new_mode);
 void setup() {
   Serial.begin(UART_BAUD_RATE);
   delay(500);  // Longer delay to ensure all ESP-IDF boot messages complete
+  
+  // ESP32-S3: Configure watchdog timer to prevent "task not found" errors
+  // The idle task watchdog on ESP32-S3 can cause issues if tasks aren't properly registered
+#if defined(BOARD_ESP32_S3) || defined(BOARD_ESP32_S3_TOUCH) || defined(CONFIG_IDF_TARGET_ESP32S3)
+  // Reconfigure watchdog to not monitor idle tasks (prevents "task not found" errors)
+  // Arduino core may have already initialized the watchdog, so we reconfigure it
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = 5000,  // 5 second timeout (default)
+    .idle_core_mask = 0,  // Don't monitor idle tasks on either core (prevents false errors)
+    .trigger_panic = true  // Still panic on real watchdog timeout from registered tasks
+  };
+  // Reconfigure existing watchdog (won't error if already initialized)
+  esp_err_t wdt_err = esp_task_wdt_reconfigure(&wdt_config);
+  if (wdt_err != ESP_OK) {
+    // If reconfigure fails, try to initialize fresh
+    esp_task_wdt_deinit();
+    esp_task_wdt_init(&wdt_config);
+  }
+#endif
   
   // Clear any bootloader/ESP-IDF messages (ESP32 ROM bootloader + ESP-IDF errors)
   // This prevents garbage data from interfering with RotorHazard node detection
