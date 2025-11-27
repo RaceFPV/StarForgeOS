@@ -191,19 +191,15 @@ void setup() {
   #else
     // Non-touch boards: Initialize mode selection pin with internal pull-up
     // Note: g_mode_switch_pin may have been overridden by custom pins above
-    pinMode(g_mode_switch_pin, INPUT_PULLUP);
-    
+    #if defined(BOARD_NUCLEARCOUNTER)
+      pinMode(g_mode_switch_pin, INPUT_PULLDOWN);
+    #else
+      pinMode(g_mode_switch_pin, INPUT_PULLUP);
+    #endif
     // Determine initial mode BEFORE any serial output
     bool initial_switch_state = digitalRead(g_mode_switch_pin);
-
-    #if defined(BOARD_NUCLEARCOUNTER)
-      // NuclearCounter: Button brings pin HIGH when pressed (opposite of default behavior)
-      // HIGH (button pressed) = STANDALONE, LOW (button not pressed) = ROTORHAZARD
-      current_mode = (initial_switch_state == HIGH) ? MODE_STANDALONE : MODE_ROTORHAZARD;
-    #else
-      // Default behavior: LOW (GND) = STANDALONE, HIGH/floating = ROTORHAZARD
-      current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
-    #endif
+    // Default behavior: LOW (GND) = STANDALONE, HIGH/floating = ROTORHAZARD
+    current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
   #endif
   
   // Now that mode is determined, we can safely print status messages in standalone mode
