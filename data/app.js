@@ -446,10 +446,41 @@ class RaceTimer {
         if (!this.speechSynthesis) return;
         
         const lapNumber = this.laps.length;
-        const lapTime = this.formatTime(lapData.lap_time_ms);
-        
+        const ms = lapData.lap_time_ms;
+
+        // Build a human-friendly spoken time.
+        // If less than 1 minute, speak only seconds (e.g. "45 seconds").
+        // If 1 minute or more, speak minutes and seconds (e.g. "1 minute 23 seconds").
+        const totalSecondsFloat = ms / 1000.0;
+        const totalSeconds = Math.floor(totalSecondsFloat);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        // For spoken seconds, include fractional part to two decimals
+        const secondsFloat = (ms % 60000) / 1000.0; // seconds within current minute
+
+        const plural = (n, s) => (n === 1 ? s : s + 's');
+
+        let timeSpeech = '';
+        if (hours > 0) {
+            timeSpeech += `${hours} ${plural(hours, 'hour')}`;
+            timeSpeech += ` ${minutes} ${plural(minutes, 'minute')}`;
+            const secStr = secondsFloat.toFixed(2);
+            const secIsOne = Math.abs(Number(secStr) - 1.0) < 0.0005;
+            timeSpeech += ` ${secStr} ${secIsOne ? 'second' : 'seconds'}`;
+        } else if (minutes > 0) {
+            timeSpeech += `${minutes} ${plural(minutes, 'minute')}`;
+            const secStr = secondsFloat.toFixed(2);
+            const secIsOne = Math.abs(Number(secStr) - 1.0) < 0.0005;
+            timeSpeech += ` ${secStr} ${secIsOne ? 'second' : 'seconds'}`;
+        } else {
+            // Less than one minute: only seconds with two decimals
+            const secStr = totalSecondsFloat.toFixed(2);
+            const secIsOne = Math.abs(Number(secStr) - 1.0) < 0.0005;
+            timeSpeech += `${secStr} ${secIsOne ? 'second' : 'seconds'}`;
+        }
+
         // Create speech text
-        let speechText = `Lap ${lapNumber}, ${lapTime}`;
+        let speechText = `Lap ${lapNumber}, ${timeSpeech}`;
         
         // Add context about lap performance
         if (lapNumber > 1) {
@@ -467,13 +498,13 @@ class RaceTimer {
             }
         }
         
-        // Speak the announcement
-        const utterance = new SpeechSynthesisUtterance(speechText);
-        utterance.rate = 1.2; // Slightly faster for quick announcements
-        utterance.pitch = 1.0;
-        utterance.volume = 0.8;
-        
-        this.speechSynthesis.speak(utterance);
+    // Speak the announcement
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.rate = 1.2; // Slightly faster for quick announcements
+    utterance.pitch = 1.0;
+    utterance.volume = 0.8;
+
+    this.speechSynthesis.speak(utterance);
     }
     
     toggleAudio() {
