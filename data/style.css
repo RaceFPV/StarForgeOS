@@ -86,6 +86,13 @@ h1 {
         0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
+.status-container {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
 .status {
     display: flex;
     align-items: center;
@@ -95,6 +102,57 @@ h1 {
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 1px;
+}
+
+.race-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: rgba(139, 157, 195, 0.1);
+    border: 2px solid rgba(139, 157, 195, 0.3);
+    transition: all 0.3s ease;
+}
+
+.race-status.race-active {
+    background: rgba(0, 255, 136, 0.15);
+    border-color: #00ff88;
+    color: #00ff88;
+    box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+}
+
+.race-status.race-stopped {
+    background: rgba(139, 157, 195, 0.1);
+    border-color: rgba(139, 157, 195, 0.3);
+    color: #8b9dc3;
+}
+
+.race-status.race-stopped-flash {
+    animation: raceStoppedFlash 1s ease-out;
+}
+
+.race-status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 10px currentColor;
+}
+
+.race-status-indicator.racing {
+    background: #00ff88;
+    box-shadow: 0 0 15px #00ff88, 0 0 25px rgba(0, 255, 136, 0.5);
+    animation: racePulse 1.5s ease-in-out infinite;
+}
+
+.race-status-indicator.stopped {
+    background: #8b9dc3;
+    box-shadow: 0 0 10px rgba(139, 157, 195, 0.5);
 }
 
 .status-dot {
@@ -579,6 +637,12 @@ h1 {
         padding: 20px;
     }
     
+    .status-container {
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+    }
+    
     h1 {
         font-size: 20px;
     }
@@ -728,6 +792,65 @@ h1 {
 
 .status-dot.connecting {
     animation: pulse 1s infinite;
+}
+
+@keyframes racePulse {
+    0%, 100% { 
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% { 
+        transform: scale(1.2);
+        opacity: 0.8;
+    }
+}
+
+@keyframes raceStoppedFlash {
+    0% {
+        background: rgba(255, 56, 56, 0.3);
+        border-color: #ff3838;
+        color: #ff3838;
+        box-shadow: 0 0 30px rgba(255, 56, 56, 0.6);
+        transform: scale(1.1);
+    }
+    100% {
+        background: rgba(139, 157, 195, 0.1);
+        border-color: rgba(139, 157, 195, 0.3);
+        color: #8b9dc3;
+        box-shadow: none;
+        transform: scale(1);
+    }
+}
+
+@keyframes raceFinishedPulse {
+    0% {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.05);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Body classes for global race state styling */
+body.race-active {
+    /* Add subtle visual indication when race is active */
+}
+
+body.race-active .control-panel {
+    border-color: rgba(0, 255, 136, 0.4);
+    box-shadow: 
+        0 0 40px rgba(0, 255, 136, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+body.race-stopped .control-panel {
+    /* Normal state */
 }
 
 /* Crossing indicator */

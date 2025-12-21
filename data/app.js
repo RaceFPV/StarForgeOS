@@ -8,13 +8,25 @@ class RaceTimer {
         this.currentStatus = {};
         this.audioEnabled = true;
         this.speechSynthesis = window.speechSynthesis;
-        
+
         // RSSI Graph variables
         this.rssiHistory = [];
         this.maxHistory = 150; // 150 points for scrolling graph
         this.rssiCanvas = null;
         this.rssiCtx = null;
-        
+
+        // Race data recording for export
+        this.raceData = {
+            rssiSamples: [],       // Full RSSI history with timestamps
+            laps: [],              // Lap data
+            startTime: null,       // Race start timestamp
+            endTime: null,         // Race end timestamp
+            enterThreshold: 120,   // Enter RSSI threshold
+            exitThreshold: 100,    // Exit RSSI threshold
+            frequency: 5800        // VTX frequency
+        };
+        this.recordingActive = false;
+
         this.initializeUI();
         this.initializeCanvas();
         this.loadChannels();
@@ -209,16 +221,41 @@ class RaceTimer {
     
     updateStatus(data) {
         this.currentStatus = data;
-        
+
         // Store RSSI for graphing
         const rssiValue = data.rssi || data.current_rssi || 0;
         this.rssiHistory.push(rssiValue);
-        
+
         // Keep history limited
         if (this.rssiHistory.length > this.maxHistory) {
             this.rssiHistory.shift();
         }
-        
+
+        // Record RSSI sample with timestamp for race data export
+        if (this.recordingActive) {
+            this.raceData.rssiSamples.push({
+                timestamp: Date.now(),
+                rssi: rssiValue
+            });
+        }
+
+        // Update race data thresholds from current status
+        if (data.enter_rssi !== undefined) {
+            this.raceData.enterThreshold = data.enter_rssi;
+        }
+        if (data.exit_rssi !== undefined) {
+            this.raceData.exitThreshold = data.exit_rssi;
+        }
+        if (data.frequency !== undefined) {
+            this.raceData.frequency = data.frequency;
+        }
+
+        // Update race state indicator
+        const isRacing = data.status === 'racing';
+        const wasRacing = this.raceActive;
+        this.raceActive = isRacing;
+        this.updateRaceStatusIndicator(isRacing, wasRacing);
+
         // Update lap count
         const lapCount = document.getElementById('lapCount');
         if (lapCount) {
@@ -293,11 +330,46 @@ class RaceTimer {
         }
     }
     
+    updateRaceStatusIndicator(isRacing, wasRacing) {
+        const raceStatusIndicator = document.getElementById('raceStatusIndicator');
+        const raceStatusText = document.getElementById('raceStatusText');
+        const raceStatus = document.getElementById('raceStatus');
+        const container = document.body;
+        
+        if (!raceStatusIndicator || !raceStatusText || !raceStatus) {
+            return;
+        }
+        
+        if (isRacing) {
+            // Race is active
+            raceStatusIndicator.className = 'race-status-indicator racing';
+            raceStatusText.textContent = 'Racing';
+            raceStatus.className = 'race-status race-active';
+            container.classList.add('race-active');
+            container.classList.remove('race-stopped');
+        } else {
+            // Race is stopped/ready
+            raceStatusIndicator.className = 'race-status-indicator stopped';
+            raceStatusText.textContent = 'Ready';
+            raceStatus.className = 'race-status race-stopped';
+            container.classList.add('race-stopped');
+            container.classList.remove('race-active');
+            
+            // If race just stopped (was racing before), add a flash effect
+            if (wasRacing) {
+                raceStatus.classList.add('race-stopped-flash');
+                setTimeout(() => {
+                    raceStatus.classList.remove('race-stopped-flash');
+                }, 1000);
+            }
+        }
+    }
+    
     updateLaps(laps) {
         // Check for new laps by comparing with previous lap count
         const previousLapCount = this.laps.length;
         const currentLapCount = laps.length;
-        
+
         if (currentLapCount > previousLapCount) {
             // New lap detected - announce it
             const newLap = laps[laps.length - 1];
@@ -305,9 +377,13 @@ class RaceTimer {
                 this.announceLapTime(newLap);
             }
         }
-        
+
         // Update laps array
         this.laps = laps;
+
+        // Update race data laps
+        this.raceData.laps = laps;
+
         this.updateLapDisplay();
     }
     
@@ -616,6 +692,157 @@ class RaceTimer {
         this.sendCommand('get_status');
         this.sendCommand('get_laps');
     }
+
+    startRecording() {
+        this.recordingActive = true;
+        this.raceData.startTime = Date.now();
+        this.raceData.rssiSamples = [];
+        this.raceData.laps = [];
+        console.log('Race recording started');
+    }
+
+    stopRecording() {
+        this.recordingActive = false;
+        this.raceData.endTime = Date.now();
+        console.log('Race recording stopped');
+    }
+
+    clearRecording() {
+        this.recordingActive = false;
+        this.raceData = {
+            rssiSamples: [],
+            laps: [],
+            startTime: null,
+            endTime: null,
+            enterThreshold: this.raceData.enterThreshold,
+            exitThreshold: this.raceData.exitThreshold,
+            frequency: this.raceData.frequency
+        };
+        console.log('Race recording cleared');
+    }
+
+    exportRaceDataJSON() {
+        const raceExport = {
+            metadata: {
+                exportVersion: '1.0',
+                exportDate: new Date().toISOString(),
+                raceStartTime: this.raceData.startTime ? new Date(this.raceData.startTime).toISOString() : null,
+                raceEndTime: this.raceData.endTime ? new Date(this.raceData.endTime).toISOString() : null,
+                raceDuration: this.raceData.startTime && this.raceData.endTime ?
+                    this.raceData.endTime - this.raceData.startTime : null,
+                deviceName: 'StarForge Race Timer',
+                enterThreshold: this.raceData.enterThreshold,
+                exitThreshold: this.raceData.exitThreshold,
+                frequency: this.raceData.frequency
+            },
+            laps: this.raceData.laps.map((lap, index) => ({
+                lapNumber: index + 1,
+                timestamp: lap.timestamp_ms,
+                lapTime: lap.lap_time_ms,
+                peakRSSI: lap.peak_rssi || lap.rssi_peak
+            })),
+            rssiHistory: this.raceData.rssiSamples.map(sample => ({
+                timestamp: sample.timestamp,
+                rssi: sample.rssi
+            }))
+        };
+
+        return JSON.stringify(raceExport, null, 2);
+    }
+
+    exportRaceDataCSV() {
+        let csv = 'StarForge Race Timer - Race Data Export\n';
+        csv += `Export Date,${new Date().toISOString()}\n`;
+        csv += `Race Start,${this.raceData.startTime ? new Date(this.raceData.startTime).toISOString() : 'N/A'}\n`;
+        csv += `Race End,${this.raceData.endTime ? new Date(this.raceData.endTime).toISOString() : 'N/A'}\n`;
+        csv += `Enter Threshold,${this.raceData.enterThreshold}\n`;
+        csv += `Exit Threshold,${this.raceData.exitThreshold}\n`;
+        csv += `Frequency,${this.raceData.frequency} MHz\n`;
+        csv += '\n';
+
+        csv += 'LAP DATA\n';
+        csv += 'Lap Number,Timestamp (ms),Lap Time (ms),Peak RSSI\n';
+        this.raceData.laps.forEach((lap, index) => {
+            csv += `${index + 1},${lap.timestamp_ms},${lap.lap_time_ms},${lap.peak_rssi || lap.rssi_peak}\n`;
+        });
+        csv += '\n';
+
+        csv += 'RSSI HISTORY\n';
+        csv += 'Timestamp,RSSI\n';
+        this.raceData.rssiSamples.forEach(sample => {
+            csv += `${sample.timestamp},${sample.rssi}\n`;
+        });
+
+        return csv;
+    }
+
+    async downloadRaceData(format = 'both') {
+        if (this.raceData.rssiSamples.length === 0 && this.raceData.laps.length === 0) {
+            alert('No race data to download. Start a race and collect some data first.');
+            return;
+        }
+
+        // Fetch high-resolution RSSI history from ESP32 (if available)
+        try {
+            const rssiHistoryResponse = await fetch('/api/rssi_history');
+            if (rssiHistoryResponse.ok) {
+                const rssiHistory = await rssiHistoryResponse.json();
+                if (rssiHistory.samples && rssiHistory.samples.length > 0) {
+                    // Merge ESP32 high-res data with browser data
+                    // ESP32 uses relative timestamps (ms since race start)
+                    // Browser uses absolute timestamps
+                    const raceStartTime = this.raceData.startTime || Date.now();
+
+                    // Convert ESP32 samples to browser format
+                    const esp32Samples = rssiHistory.samples.map(s => ({
+                        timestamp: raceStartTime + s.t,
+                        rssi: s.r
+                    }));
+
+                    // Merge and sort by timestamp
+                    const allSamples = [...this.raceData.rssiSamples, ...esp32Samples];
+                    allSamples.sort((a, b) => a.timestamp - b.timestamp);
+
+                    // Remove duplicates (keep ESP32 data when timestamps are close)
+                    const mergedSamples = [];
+                    for (let i = 0; i < allSamples.length; i++) {
+                        if (i === 0 || Math.abs(allSamples[i].timestamp - allSamples[i-1].timestamp) > 10) {
+                            mergedSamples.push(allSamples[i]);
+                        }
+                    }
+
+                    this.raceData.rssiSamples = mergedSamples;
+                    console.log(`Merged ${esp32Samples.length} ESP32 samples with ${this.raceData.rssiSamples.length} browser samples`);
+                }
+            }
+        } catch (error) {
+            console.warn('Could not fetch ESP32 RSSI history, using browser data only:', error);
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+
+        if (format === 'json' || format === 'both') {
+            const jsonData = this.exportRaceDataJSON();
+            const jsonBlob = new Blob([jsonData], { type: 'application/json' });
+            const jsonUrl = URL.createObjectURL(jsonBlob);
+            const jsonLink = document.createElement('a');
+            jsonLink.href = jsonUrl;
+            jsonLink.download = `starforge-race-${timestamp}.json`;
+            jsonLink.click();
+            URL.revokeObjectURL(jsonUrl);
+        }
+
+        if (format === 'csv' || format === 'both') {
+            const csvData = this.exportRaceDataCSV();
+            const csvBlob = new Blob([csvData], { type: 'text/csv' });
+            const csvUrl = URL.createObjectURL(csvBlob);
+            const csvLink = document.createElement('a');
+            csvLink.href = csvUrl;
+            csvLink.download = `starforge-race-${timestamp}.csv`;
+            csvLink.click();
+            URL.revokeObjectURL(csvUrl);
+        }
+    }
 }
 
 // Global functions for button handlers
@@ -710,6 +937,11 @@ function startRace() {
         await new Promise(resolve => setTimeout(resolve, 500));
         document.body.removeChild(overlay);
         
+        // Start recording race data
+        if (raceTimer) {
+            raceTimer.startRecording();
+        }
+
         // Actually start the race on the backend
         fetch('/api/start_race', {
             method: 'POST'
@@ -720,6 +952,10 @@ function startRace() {
             if (startBtn) {
                 startBtn.disabled = false;
                 startBtn.textContent = '▶ Start Race';
+            }
+            // Race status will be updated on next poll, but set it optimistically
+            if (raceTimer) {
+                raceTimer.updateRaceStatusIndicator(true, raceTimer.raceActive);
             }
         })
         .catch(error => {
@@ -736,15 +972,105 @@ function startRace() {
 
 function stopRace() {
     console.log('Stop race clicked');
+
+    // Stop recording race data
+    if (raceTimer) {
+        raceTimer.stopRecording();
+    }
+
+    // Show "Race Finished" overlay
+    async function showRaceFinishedOverlay() {
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            font-family: 'Courier New', monospace;
+            opacity: 0;
+            transition: opacity 0.3s ease-in;
+        `;
+        
+        const finishedText = document.createElement('div');
+        finishedText.style.cssText = `
+            font-size: 100px;
+            font-weight: bold;
+            color: #ff7b00;
+            text-shadow: 0 0 40px #ff7b00, 0 0 80px #ff7b00, 0 0 120px rgba(255, 123, 0, 0.5);
+            text-align: center;
+            animation: raceFinishedPulse 0.6s ease-in-out;
+        `;
+        finishedText.textContent = 'RACE FINISHED';
+        
+        overlay.appendChild(finishedText);
+        document.body.appendChild(overlay);
+        
+        // Fade in
+        setTimeout(() => {
+            overlay.style.opacity = '1';
+        }, 10);
+        
+        // Optional: play a brief sound effect
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 600;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.4);
+        } catch (e) {
+            // Audio context may not be available, ignore
+            console.log('Audio not available for finish sound');
+        }
+        
+        // Show for 1.5 seconds, then fade out
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        overlay.style.transition = 'opacity 0.4s ease-out';
+        overlay.style.opacity = '0';
+        
+        await new Promise(resolve => setTimeout(resolve, 400));
+        if (document.body.contains(overlay)) {
+            document.body.removeChild(overlay);
+        }
+    }
+
+    // Start the overlay animation
+    showRaceFinishedOverlay();
+
     fetch('/api/stop_race', {
         method: 'POST'
     })
     .then(response => response.json())
     .then(data => {
         console.log('Race stopped:', data);
+        // Update race status indicator after overlay starts
+        if (raceTimer) {
+            raceTimer.updateRaceStatusIndicator(false, raceTimer.raceActive);
+        }
     })
     .catch(error => {
         console.error('Error stopping race:', error);
+        // Update race status indicator even on error
+        if (raceTimer) {
+            raceTimer.updateRaceStatusIndicator(false, raceTimer.raceActive);
+        }
     });
 }
 

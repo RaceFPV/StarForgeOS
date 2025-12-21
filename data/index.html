@@ -10,9 +10,15 @@
     <div class="container">
         <header>
             <h1>⚡ STARFORGE TIMER</h1>
-            <div class="status">
-                <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Connecting...</span>
+            <div class="status-container">
+                <div class="status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <div class="race-status" id="raceStatus">
+                    <div class="race-status-indicator" id="raceStatusIndicator"></div>
+                    <span id="raceStatusText">Ready</span>
+                </div>
             </div>
         </header>
         
@@ -81,6 +87,7 @@
             <div class="controls">
                 <button id="audioToggle" onclick="toggleAudio()" class="btn btn-info active">🔊 Audio On</button>
                 <button onclick="testAudio()" class="btn btn-info">🔈 Test Audio</button>
+                <button onclick="downloadRaceData()" class="btn btn-info">📥 Download Race Data</button>
             </div>
         </div>
         
@@ -267,11 +274,20 @@
                     if (window.raceTimer) {
                         window.raceTimer.laps = [];
                         window.raceTimer.updateLapDisplay();
+                        window.raceTimer.clearRecording();
                     }
                 })
                 .catch(error => {
                     console.error('Error clearing laps:', error);
                 });
+            }
+        }
+
+        async function downloadRaceData() {
+            if (window.raceTimer) {
+                await window.raceTimer.downloadRaceData('both');
+            } else {
+                alert('Race timer not initialized');
             }
         }
     </script>

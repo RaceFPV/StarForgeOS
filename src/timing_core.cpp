@@ -104,11 +104,22 @@ TimingCore::TimingCore() {
   peak_read_index = 0;
   nadir_write_index = 0;
   nadir_read_index = 0;
-  
+
   memset(&current_peak, 0, sizeof(current_peak));
   memset(&current_nadir, 0, sizeof(current_nadir));
   current_nadir.rssi = 255;
-  
+
+  // Initialize RSSI history buffering
+#if RSSI_HISTORY_ENABLED
+  rssi_history_buffer = (RSSISample*)malloc(RSSI_HISTORY_SIZE * sizeof(RSSISample));
+  rssi_history_write_index = 0;
+  rssi_history_count = 0;
+  last_rssi_sample_time = 0;
+  if (rssi_history_buffer) {
+    memset(rssi_history_buffer, 0, RSSI_HISTORY_SIZE * sizeof(RSSISample));
+  }
+#endif
+
   // Initialize FreeRTOS objects
   timing_task_handle = nullptr;
   timing_mutex = xSemaphoreCreateMutex();
@@ -240,7 +251,22 @@ void TimingCore::timingTask(void* parameter) {
       
       uint8_t filtered_rssi = core->filterRSSI(raw_rssi);
       core->state.current_rssi = filtered_rssi;
-      
+
+      // Buffer RSSI sample for race data export (50Hz)
+#if RSSI_HISTORY_ENABLED
+      if (core->rssi_history_buffer &&
+          (current_time - core->last_rssi_sample_time >= RSSI_SAMPLE_INTERVAL_MS)) {
+        uint32_t race_time = current_time - core->race_start_time_ms;
+        core->rssi_history_buffer[core->rssi_history_write_index].timestamp_ms = race_time;
+        core->rssi_history_buffer[core->rssi_history_write_index].rssi = filtered_rssi;
+        core->rssi_history_write_index = (core->rssi_history_write_index + 1) % RSSI_HISTORY_SIZE;
+        if (core->rssi_history_count < RSSI_HISTORY_SIZE) {
+          core->rssi_history_count++;
+        }
+        core->last_rssi_sample_time = current_time;
+      }
+#endif
+
       // Update nadir tracking (always track, regardless of crossing state)
       if (filtered_rssi < core->state.nadir_rssi) {
         core->state.nadir_rssi = filtered_rssi;
@@ -248,7 +274,7 @@ void TimingCore::timingTask(void* parameter) {
       if (filtered_rssi < core->state.pass_rssi_nadir) {
         core->state.pass_rssi_nadir = filtered_rssi;
       }
-      
+
       // Process extremums for marshal mode history
       core->processExtremums(current_time, filtered_rssi);
       
@@ -1293,4 +1319,36 @@ uint8_t TimingCore::readRawRSSI_DMA() {
   // Fallback to polled read if DMA fails
   return readRawRSSI();
 }
+
+// RSSI history access methods
+#if RSSI_HISTORY_ENABLED
+uint32_t TimingCore::getRSSIHistoryCount() const {
+  return rssi_history_count;
+}
+
+bool TimingCore::getRSSIHistorySample(uint32_t index, RSSISample& sample) const {
+  if (!rssi_history_buffer || index >= rssi_history_count) {
+    return false;
+  }
+
+  uint32_t buffer_index;
+  if (rssi_history_count < RSSI_HISTORY_SIZE) {
+    buffer_index = index;
+  } else {
+    buffer_index = (rssi_history_write_index + index) % RSSI_HISTORY_SIZE;
+  }
+
+  sample = rssi_history_buffer[buffer_index];
+  return true;
+}
+
+void TimingCore::clearRSSIHistory() {
+  rssi_history_write_index = 0;
+  rssi_history_count = 0;
+  last_rssi_sample_time = 0;
+  if (rssi_history_buffer) {
+    memset(rssi_history_buffer, 0, RSSI_HISTORY_SIZE * sizeof(RSSISample));
+  }
+}
+#endif
 

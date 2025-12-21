@@ -62,6 +62,7 @@ private:
     void handleRoot();
     void handleGetStatus();
     void handleGetLaps();
+    void handleGetRSSIHistory();
     void handleStartRace();
     void handleStopRace();
     void handleClearLaps();

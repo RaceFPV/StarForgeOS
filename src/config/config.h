@@ -86,7 +86,7 @@
     #define RX5808_DATA_PIN     5    // GPIO11 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      7    // GPIO12 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      6    // GPIO10 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to 3.3v for WiFi mode)
+    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for WiFi mode, HIGH/floating for RotorHazard mode)
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility (DMA ADC conflicts with analogRead on ADC1)
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
 
@@ -117,7 +117,7 @@
     #define RX5808_DATA_PIN     11    // GPIO11 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      12    // GPIO12 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      10    // GPIO13 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to 3.3v for WiFi mode)
+    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for WiFi mode, HIGH/floating for RotorHazard mode)
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
     #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
@@ -307,6 +307,11 @@
 // Data storage
 #define MAX_LAPS_STORED     100   // Maximum laps to store in memory
 #define MAX_PILOTS          2     // Maximum pilots in standalone mode
+
+// RSSI history buffering for race data export
+#define RSSI_HISTORY_ENABLED    1     // Enable RSSI history buffering (0 to disable)
+#define RSSI_HISTORY_SIZE       30000 // 30,000 samples = 10 minutes @ 50Hz (150 KB)
+#define RSSI_SAMPLE_INTERVAL_MS 20    // 50Hz = sample every 20ms
 
 // Debug settings
 #define DEBUG_SERIAL        0     // Enable debug output

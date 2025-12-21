@@ -120,6 +120,7 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
     _server.on("/", HTTP_GET, [this]() { handleRoot(); });
     _server.on("/api/status", HTTP_GET, [this]() { handleGetStatus(); });
     _server.on("/api/laps", HTTP_GET, [this]() { handleGetLaps(); });
+    _server.on("/api/rssi_history", HTTP_GET, [this]() { handleGetRSSIHistory(); });
     _server.on("/api/start_race", HTTP_POST, [this]() { handleStartRace(); });
     _server.on("/api/stop_race", HTTP_POST, [this]() { handleStopRace(); });
     _server.on("/api/clear_laps", HTTP_POST, [this]() { handleClearLaps(); });
@@ -265,6 +266,32 @@ void WebServerManager::handleGetLaps() {
 
     json += "]";
     _server.send(200, "application/json", json);
+}
+
+void WebServerManager::handleGetRSSIHistory() {
+#if RSSI_HISTORY_ENABLED
+    if (!_timingCore) {
+        _server.send(500, "application/json", "{\"error\":\"Timing core not available\"}");
+        return;
+    }
+
+    uint32_t count = _timingCore->getRSSIHistoryCount();
+
+    String json = "{\"count\":" + String(count) + ",\"samples\":[";
+
+    RSSISample sample;
+    for (uint32_t i = 0; i < count; i++) {
+        if (_timingCore->getRSSIHistorySample(i, sample)) {
+            if (i > 0) json += ",";
+            json += "{\"t\":" + String(sample.timestamp_ms) + ",\"r\":" + String(sample.rssi) + "}";
+        }
+    }
+
+    json += "]}";
+    _server.send(200, "application/json", json);
+#else
+    _server.send(501, "application/json", "{\"error\":\"RSSI history not enabled\"}");
+#endif
 }
 
 void WebServerManager::handleStartRace() {

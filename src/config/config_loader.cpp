@@ -11,8 +11,10 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
     
     Preferences prefs;
     
-    // Open preferences in read-only mode
-    if (!prefs.begin(NVS_NAMESPACE, true)) {
+    // Try opening in read-write mode first (won't error if namespace doesn't exist)
+    // This avoids the Preferences library error message on first boot
+    if (!prefs.begin(NVS_NAMESPACE, false)) {
+        // This should rarely happen - only if NVS is corrupted
         if (allowSerialOutput) {
             Serial.println("ConfigLoader: Failed to open NVS - using config.h defaults");
         }
@@ -159,7 +161,9 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
 bool ConfigLoader::hasCustomConfig() {
     Preferences prefs;
     
-    if (!prefs.begin(NVS_NAMESPACE, true)) {
+    // Open in read-write mode to avoid error if namespace doesn't exist
+    // (read-only mode errors when namespace doesn't exist)
+    if (!prefs.begin(NVS_NAMESPACE, false)) {
         return false;
     }
     

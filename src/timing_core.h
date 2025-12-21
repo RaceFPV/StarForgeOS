@@ -24,6 +24,12 @@ struct Extremum {
   bool valid;               // Whether this extremum is valid
 };
 
+// Structure to hold RSSI sample with timestamp (for race history export)
+struct RSSISample {
+  uint32_t timestamp_ms;    // Timestamp in milliseconds since race start
+  uint8_t rssi;             // Filtered RSSI value
+};
+
 #define EXTREMUM_BUFFER_SIZE 256  // Circular buffer for extremums (must be power of 2)
 
 // Structure to hold current timing state
@@ -80,14 +86,22 @@ private:
   // Current extremum being tracked
   Extremum current_peak;
   Extremum current_nadir;
-  
+
+  // RSSI history buffering (for race data export)
+#if RSSI_HISTORY_ENABLED
+  RSSISample* rssi_history_buffer;  // Dynamically allocated circular buffer
+  uint32_t rssi_history_write_index;
+  uint32_t rssi_history_count;
+  uint32_t last_rssi_sample_time;
+#endif
+
   // FreeRTOS task handle for ESP32-C3 single core
   TaskHandle_t timing_task_handle;
   SemaphoreHandle_t timing_mutex;
-  
+
   // Debug mode flag
   bool debug_enabled;
-  
+
   // RX5808 frequency stability tracking
   bool recent_freq_change;
   uint32_t freq_change_time;
@@ -173,7 +187,14 @@ public:
   Extremum peekNextNadir() const;  // Peek without removing
   uint8_t getNadirRSSI() const;
   uint8_t getPassNadirRSSI() const;
-  
+
+  // RSSI history access (for race data export)
+#if RSSI_HISTORY_ENABLED
+  uint32_t getRSSIHistoryCount() const;
+  bool getRSSIHistorySample(uint32_t index, RSSISample& sample) const;
+  void clearRSSIHistory();
+#endif
+
   // Callbacks for mode-specific handling
   typedef void (*LapCallback)(const LapData& lap);
   typedef void (*CrossingCallback)(bool crossing_state, uint8_t rssi);
