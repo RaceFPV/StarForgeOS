@@ -93,6 +93,7 @@ private:
   uint32_t rssi_history_write_index;
   uint32_t rssi_history_count;
   uint32_t last_rssi_sample_time;
+  bool rssi_history_allocation_attempted;  // Track if we've tried to allocate (prevent spam)
 #endif
 
   // FreeRTOS task handle for ESP32-C3 single core

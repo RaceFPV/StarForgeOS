@@ -110,14 +110,14 @@ TimingCore::TimingCore() {
   current_nadir.rssi = 255;
 
   // Initialize RSSI history buffering
+  // CRITICAL: Defer allocation until after WiFi is initialized to prevent heap fragmentation
+  // WiFi needs contiguous memory blocks, and allocating 150KB early can cause crashes
 #if RSSI_HISTORY_ENABLED
-  rssi_history_buffer = (RSSISample*)malloc(RSSI_HISTORY_SIZE * sizeof(RSSISample));
+  rssi_history_buffer = nullptr;  // Allocate lazily when first race starts (after WiFi init)
   rssi_history_write_index = 0;
   rssi_history_count = 0;
   last_rssi_sample_time = 0;
-  if (rssi_history_buffer) {
-    memset(rssi_history_buffer, 0, RSSI_HISTORY_SIZE * sizeof(RSSISample));
-  }
+  rssi_history_allocation_attempted = false;  // Track allocation attempts
 #endif
 
   // Initialize FreeRTOS objects
@@ -175,6 +175,10 @@ void TimingCore::begin() {
   }
   
   // Note: RSSI calibration will be done after debug mode is set
+  
+  // RSSI history buffer allocation is deferred until first use (lazy allocation)
+  // This prevents heap fragmentation during WiFi initialization
+  // The buffer will be allocated when the first race starts (after WiFi is ready)
   
   // Create timing task with appropriate core pinning
   // ESP32-C3/C6 (single core): Use xTaskCreate (no core pinning)
@@ -253,17 +257,37 @@ void TimingCore::timingTask(void* parameter) {
       core->state.current_rssi = filtered_rssi;
 
       // Buffer RSSI sample for race data export (50Hz)
+      // Lazy allocation: Allocate buffer on first use (after WiFi is initialized)
 #if RSSI_HISTORY_ENABLED
-      if (core->rssi_history_buffer &&
+      if (core->race_start_time_ms > 0 &&  // Only allocate when race is active
           (current_time - core->last_rssi_sample_time >= RSSI_SAMPLE_INTERVAL_MS)) {
-        uint32_t race_time = current_time - core->race_start_time_ms;
-        core->rssi_history_buffer[core->rssi_history_write_index].timestamp_ms = race_time;
-        core->rssi_history_buffer[core->rssi_history_write_index].rssi = filtered_rssi;
-        core->rssi_history_write_index = (core->rssi_history_write_index + 1) % RSSI_HISTORY_SIZE;
-        if (core->rssi_history_count < RSSI_HISTORY_SIZE) {
-          core->rssi_history_count++;
+        // Lazy allocation: Allocate buffer when first race starts (after WiFi init)
+        // Only try once to prevent spam
+        if (!core->rssi_history_buffer && !core->rssi_history_allocation_attempted) {
+          core->rssi_history_allocation_attempted = true;
+          
+          size_t required_bytes = RSSI_HISTORY_SIZE * sizeof(RSSISample);
+          core->rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+          if (core->rssi_history_buffer) {
+            memset(core->rssi_history_buffer, 0, required_bytes);
+            if (core->debug_enabled) {
+              Serial.printf("RSSI history buffer allocated: %d KB\n", required_bytes / 1024);
+            }
+          } else {
+            Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB)\n", required_bytes / 1024);
+          }
         }
-        core->last_rssi_sample_time = current_time;
+        
+        if (core->rssi_history_buffer) {
+          uint32_t race_time = current_time - core->race_start_time_ms;
+          core->rssi_history_buffer[core->rssi_history_write_index].timestamp_ms = race_time;
+          core->rssi_history_buffer[core->rssi_history_write_index].rssi = filtered_rssi;
+          core->rssi_history_write_index = (core->rssi_history_write_index + 1) % RSSI_HISTORY_SIZE;
+          if (core->rssi_history_count < RSSI_HISTORY_SIZE) {
+            core->rssi_history_count++;
+          }
+          core->last_rssi_sample_time = current_time;
+        }
       }
 #endif
 
@@ -1346,6 +1370,7 @@ void TimingCore::clearRSSIHistory() {
   rssi_history_write_index = 0;
   rssi_history_count = 0;
   last_rssi_sample_time = 0;
+  rssi_history_allocation_attempted = false;  // Reset so we can try again on next race
   if (rssi_history_buffer) {
     memset(rssi_history_buffer, 0, RSSI_HISTORY_SIZE * sizeof(RSSISample));
   }

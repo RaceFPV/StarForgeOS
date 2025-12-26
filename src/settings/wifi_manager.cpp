@@ -13,8 +13,20 @@ bool WiFiManager::setupAP() {
     // This prevents the high-priority timing task from starving WiFi init.
     // Now we reconfigure it with proper SSID, IP, and settings.
 
+    // CRITICAL: On ESP32-S3, if AP is already running, we must stop it first
+    // before restarting with new configuration, otherwise it crashes in ieee80211_hostap_attach
+    if (WiFi.getMode() & WIFI_AP) {
+        Serial.println("Stopping existing AP before reconfiguration...");
+        WiFi.softAPdisconnect(true);  // true = delete the AP interface
+        delay(100);  // Give WiFi stack time to clean up
+    }
+
     // Create unique SSID with MAC address
     // Use softAPmacAddress() for AP mode, not macAddress() (which is for STA mode)
+    // Note: We need WiFi mode set to AP before we can get MAC address
+    WiFi.mode(WIFI_AP);
+    delay(50);  // Small delay to ensure mode change is processed
+    
     String macAddr = WiFi.softAPmacAddress();
 
     Serial.printf("AP MAC Address: %s\n", macAddr.c_str());

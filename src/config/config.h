@@ -14,6 +14,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C6
 #elif defined(BOARD_NUCLEARCOUNTER)
     // NuclearCounter (ESP32-C3 based board)
     #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
@@ -25,6 +26,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO1 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
 #elif defined(BOARD_ESP32_C3_ZERO)
     // ESP32-C3 Zero - Must come BEFORE generic ESP32-C3 check (more specific)
     #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
@@ -38,6 +40,7 @@
     #define STATUS_LED_PIN      10     // GPIO10 - WS2812 RGB LED
     #define STATUS_LED_WS2812   1     // Enable WS2812 support (uses built-in neopixelWrite() function)
     #define STATUS_LED_INVERTED 0     // Not used for WS2812 (color-based control)
+    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
 #elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     // ESP32-C3 SuperMini (Hertz-hunter compatible)
     // Generic ESP32-C3 - Must come AFTER specific board checks
@@ -50,6 +53,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
 #elif defined(BOARD_ESP32_S3_TOUCH)
     // Waveshare ESP32-S3-Touch-LCD-2 with 2" ST7789T3 LCD (240x320) and CST816D touch
     // Pin configuration verified from official Waveshare demo code
@@ -64,6 +68,7 @@
     #define POWER_BUTTON_PIN    0     // GPIO0 - Boot button (long press = deep sleep)
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
+    #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for S3 memory constraints
 #elif defined(BOARD_JC2432W328C)
     // JC2432W328C - ESP32-D0WD-V3 with ST7789 LCD (240x320) and CST820 touch
     // This board has a unique pin layout for the integrated display
@@ -109,6 +114,7 @@
     // Using GPIO2 as default for ESP32-S3 built-in LED (if present)
     #define STATUS_LED_PIN      1     // GPIO2 - Status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for S3 memory constraints
 #elif defined(BOARD_ESP32_S3_DEVKITC)
     // ESP32-S3-DevKitC-1 (standard development board)
     // Standard pinout for ESP32-S3-DevKitC-1
@@ -122,6 +128,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
     #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for S3 memory constraints
 #else
     // Generic ESP32 DevKit / ESP32-WROOM-32 (ESP32-D0WD-V3, NodeMCU-32S, etc)
     // Pin mapping compatible with standard ESP32 dev boards
@@ -134,6 +141,7 @@
     #define UART_BAUD_RATE      115200  // UART bridge baud rate
     // #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
     // #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for generic ESP32
 #endif
 
 // Mode selection (ESP32-C3 with pullup)
@@ -310,7 +318,10 @@
 
 // RSSI history buffering for race data export
 #define RSSI_HISTORY_ENABLED    1     // Enable RSSI history buffering (0 to disable)
-#define RSSI_HISTORY_SIZE       30000 // 30,000 samples = 10 minutes @ 50Hz (150 KB)
+// RSSI_HISTORY_SIZE is defined per-board above (S3 boards use 10K, others use 30K)
+#ifndef RSSI_HISTORY_SIZE
+    #define RSSI_HISTORY_SIZE   30000  // Default: 30,000 samples = 10 minutes @ 50Hz (150 KB)
+#endif
 #define RSSI_SAMPLE_INTERVAL_MS 20    // 50Hz = sample every 20ms
 
 // Debug settings

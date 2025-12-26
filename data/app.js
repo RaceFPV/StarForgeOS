@@ -255,6 +255,17 @@ class RaceTimer {
         const wasRacing = this.raceActive;
         this.raceActive = isRacing;
         this.updateRaceStatusIndicator(isRacing, wasRacing);
+        
+        // Update button state based on race status
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        if (startBtn) {
+            startBtn.disabled = isRacing;
+            startBtn.textContent = isRacing ? 'Race started' : '▶ Start Race';
+        }
+        if (stopBtn) {
+            stopBtn.disabled = !isRacing;
+        }
 
         // Update lap count
         const lapCount = document.getElementById('lapCount');
@@ -454,8 +465,18 @@ class RaceTimer {
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         
-        if (startBtn) startBtn.disabled = this.raceActive;
-        if (stopBtn) stopBtn.disabled = !this.raceActive;
+        if (startBtn) {
+            startBtn.disabled = this.raceActive;
+            // Update button text based on race state
+            if (this.raceActive) {
+                startBtn.textContent = 'Race started';
+            } else {
+                startBtn.textContent = '▶ Start Race';
+            }
+        }
+        if (stopBtn) {
+            stopBtn.disabled = !this.raceActive;
+        }
     }
     
     updateThresholdLines() {
@@ -949,9 +970,10 @@ function startRace() {
         .then(response => response.json())
         .then(data => {
             console.log('Race started:', data);
+            // Keep button disabled and change text to "Race started"
             if (startBtn) {
-                startBtn.disabled = false;
-                startBtn.textContent = '▶ Start Race';
+                startBtn.disabled = true;
+                startBtn.textContent = 'Race started';
             }
             // Race status will be updated on next poll, but set it optimistically
             if (raceTimer) {
@@ -960,6 +982,7 @@ function startRace() {
         })
         .catch(error => {
             console.error('Error starting race:', error);
+            // Re-enable button on error so user can try again
             if (startBtn) {
                 startBtn.disabled = false;
                 startBtn.textContent = '▶ Start Race';
@@ -1060,6 +1083,12 @@ function stopRace() {
     .then(response => response.json())
     .then(data => {
         console.log('Race stopped:', data);
+        // Re-enable start button and change text back
+        const startBtn = document.getElementById('startBtn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = '▶ Start Race';
+        }
         // Update race status indicator after overlay starts
         if (raceTimer) {
             raceTimer.updateRaceStatusIndicator(false, raceTimer.raceActive);
@@ -1067,6 +1096,12 @@ function stopRace() {
     })
     .catch(error => {
         console.error('Error stopping race:', error);
+        // Re-enable start button even on error
+        const startBtn = document.getElementById('startBtn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = '▶ Start Race';
+        }
         // Update race status indicator even on error
         if (raceTimer) {
             raceTimer.updateRaceStatusIndicator(false, raceTimer.raceActive);
