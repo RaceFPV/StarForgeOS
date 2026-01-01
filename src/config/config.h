@@ -141,7 +141,8 @@
     #define UART_BAUD_RATE      115200  // UART bridge baud rate
     // #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
     // #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
-    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for generic ESP32
+    #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for ESP32-WROOM-32D stability
+    #define RSSI_HISTORY_ENABLED 0     // Disable RSSI history for ESP32-WROOM-32D to prevent cache errors
 #endif
 
 // Mode selection (ESP32-C3 with pullup)
@@ -317,7 +318,10 @@
 #define MAX_PILOTS          2     // Maximum pilots in standalone mode
 
 // RSSI history buffering for race data export
-#define RSSI_HISTORY_ENABLED    1     // Enable RSSI history buffering (0 to disable)
+// Note: Can be overridden per-board
+#ifndef RSSI_HISTORY_ENABLED
+    #define RSSI_HISTORY_ENABLED    1     // Enable RSSI history buffering (0 to disable)
+#endif
 // RSSI_HISTORY_SIZE is defined per-board above (S3 boards use 10K, others use 30K)
 #ifndef RSSI_HISTORY_SIZE
     #define RSSI_HISTORY_SIZE   30000  // Default: 30,000 samples = 10 minutes @ 50Hz (150 KB)

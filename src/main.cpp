@@ -245,13 +245,22 @@ void setup() {
     Serial.println("Mode: STANDALONE/WIFI");
     Serial.println("Initializing timing core...");
     WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
-    delay(300); // Give everything time to start up
+    delay(500); // Increased delay for ESP32-WROOM-32D cache stability
   }
   
+  // CRITICAL: For ESP32-WROOM-32D, delay timing task creation until AFTER WiFi is initialized
+  // This prevents cache errors during WiFi initialization
   // Initialize core timing system (creates task but keeps it INACTIVE)
   // On single-core ESP32-C3, timing task must NOT run until after mode initialization
   // Otherwise it starves serial/WiFi setup (same issue as WiFi AP initialization)
-  timing.begin();
+  // For ESP32-WROOM-32D, we delay this to prevent cache conflicts
+  if (current_mode == MODE_STANDALONE) {
+    // Delay timing task creation for standalone mode to let WiFi initialize first
+    // This is a workaround for ESP32-WROOM-32D cache errors
+  } else {
+    // For node mode, we can create the timing task earlier
+    timing.begin();
+  }
   
 #if ENABLE_POWER_BUTTON
   // Initialize power button (pin 22 on JC2432W328C)
@@ -272,9 +281,20 @@ void setup() {
   // Initialize mode-specific functionality BEFORE activating timing task
   initializeMode();
   
+  // For standalone mode, create timing task AFTER WiFi is initialized (ESP32-WROOM-32D fix)
+  if (current_mode == MODE_STANDALONE) {
+    // Give WiFi extra time to fully stabilize before creating timing task
+    delay(500);
+    timing.begin();
+  }
+  
   // NOW activate timing core after mode setup is complete
   // This ensures serial port and WiFi are fully initialized before timing task runs
   timing.setActivated(true);
+  
+  if (current_mode == MODE_STANDALONE) {
+    Serial.println("Timing core activated and running");
+  }
 }
 
 void loop() {

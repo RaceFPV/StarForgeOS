@@ -52,7 +52,13 @@ WebServerManager::WebServerManager() : _server(80), _timingCore(nullptr),
     , _cachedBatteryCharging(false)
     , _batteryDataValid(false)
 #endif
-    , _webTaskHandle(nullptr) {
+    , _webTaskHandle(nullptr)
+    , _indexHtmlBuffer(nullptr)
+    , _indexHtmlSize(0)
+    , _styleCssBuffer(nullptr)
+    , _styleCssSize(0)
+    , _appJsBuffer(nullptr)
+    , _appJsSize(0) {
     // Constructor
 }
 
@@ -116,6 +122,14 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
         Serial.println("======================");
     }
 
+    // Pre-load SPIFFS files into DRAM buffers (for ESP32-WROOM-32D cache safety)
+    // This must be done BEFORE timing core is activated to avoid cache conflicts
+    #if defined(ARDUINO_ESP32_DEV)
+    if (spiffsMounted) {
+        preloadSpiffsFiles();
+    }
+    #endif
+
     // Setup web server routes
     _server.on("/", HTTP_GET, [this]() { handleRoot(); });
     _server.on("/api/status", HTTP_GET, [this]() { handleGetStatus(); });
@@ -171,6 +185,68 @@ void WebServerManager::webServerTask(void* parameter) {
     }
 }
 
+void WebServerManager::preloadSpiffsFiles() {
+    // Pre-load SPIFFS files into DRAM buffers at startup (before timing core is active)
+    // This prevents cache conflicts when serving files at runtime
+    Serial.println("Pre-loading SPIFFS files into DRAM buffers...");
+
+    // Pre-load index.html
+    if (SPIFFS.exists("/index.html")) {
+        File file = SPIFFS.open("/index.html", "r");
+        if (file && file.size() > 0) {
+            _indexHtmlSize = file.size();
+            _indexHtmlBuffer = (char*)heap_caps_malloc(_indexHtmlSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (_indexHtmlBuffer) {
+                file.readBytes(_indexHtmlBuffer, _indexHtmlSize);
+                _indexHtmlBuffer[_indexHtmlSize] = '\0';
+                Serial.printf("Pre-loaded index.html: %d bytes\n", _indexHtmlSize);
+            } else {
+                Serial.println("ERROR: Failed to allocate buffer for index.html");
+                _indexHtmlSize = 0;
+            }
+            file.close();
+        }
+    }
+
+    // Pre-load style.css
+    if (SPIFFS.exists("/style.css")) {
+        File file = SPIFFS.open("/style.css", "r");
+        if (file && file.size() > 0) {
+            _styleCssSize = file.size();
+            _styleCssBuffer = (char*)heap_caps_malloc(_styleCssSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (_styleCssBuffer) {
+                file.readBytes(_styleCssBuffer, _styleCssSize);
+                _styleCssBuffer[_styleCssSize] = '\0';
+                Serial.printf("Pre-loaded style.css: %d bytes\n", _styleCssSize);
+            } else {
+                Serial.println("ERROR: Failed to allocate buffer for style.css");
+                _styleCssSize = 0;
+            }
+            file.close();
+        }
+    }
+
+    // Pre-load app.js
+    if (SPIFFS.exists("/app.js")) {
+        File file = SPIFFS.open("/app.js", "r");
+        if (file && file.size() > 0) {
+            _appJsSize = file.size();
+            _appJsBuffer = (char*)heap_caps_malloc(_appJsSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            if (_appJsBuffer) {
+                file.readBytes(_appJsBuffer, _appJsSize);
+                _appJsBuffer[_appJsSize] = '\0';
+                Serial.printf("Pre-loaded app.js: %d bytes\n", _appJsSize);
+            } else {
+                Serial.println("ERROR: Failed to allocate buffer for app.js");
+                _appJsSize = 0;
+            }
+            file.close();
+        }
+    }
+
+    Serial.println("SPIFFS file pre-loading complete");
+}
+
 // ===== HTTP Handlers =====
 
 void WebServerManager::handleRoot() {
@@ -178,6 +254,32 @@ void WebServerManager::handleRoot() {
     _server.sendHeader("Pragma", "no-cache");
     _server.sendHeader("Expires", "0");
 
+    #if defined(ARDUINO_ESP32_DEV)
+    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
+    // Send in chunks to avoid socket buffer overflow
+    if (_indexHtmlBuffer && _indexHtmlSize > 0) {
+        Serial.println("Serving index.html from pre-loaded DRAM buffer");
+        _server.setContentLength(_indexHtmlSize);
+        _server.send(200, "text/html", "");
+        
+        // Send content in chunks to avoid buffer overflow
+        size_t chunkSize = 1024;  // 1KB chunks
+        size_t offset = 0;
+        while (offset < _indexHtmlSize) {
+            size_t toSend = (_indexHtmlSize - offset > chunkSize) ? chunkSize : (_indexHtmlSize - offset);
+            // Create String from buffer chunk (sendContent requires String)
+            String chunk(_indexHtmlBuffer + offset, toSend);
+            _server.sendContent(chunk);
+            offset += toSend;
+        }
+        return;
+    } else {
+        Serial.println("ERROR: index.html buffer not available");
+        _server.send(500, "text/plain", "index.html not pre-loaded");
+        return;
+    }
+    #else
+    // Other boards: Read from SPIFFS directly
     if (!SPIFFS.exists("/index.html")) {
         Serial.println("ERROR: /index.html does not exist in SPIFFS");
         _server.send(404, "text/plain", "index.html not found in SPIFFS");
@@ -199,9 +301,9 @@ void WebServerManager::handleRoot() {
     }
 
     Serial.println("Serving index.html from SPIFFS");
-    Serial.printf("File size: %d bytes\n", file.size());
     _server.streamFile(file, "text/html");
     file.close();
+    #endif
 }
 
 void WebServerManager::handleGetStatus() {
@@ -541,14 +643,40 @@ void WebServerManager::handleStyleCSS() {
     _server.sendHeader("Pragma", "no-cache");
     _server.sendHeader("Expires", "0");
 
+    #if defined(ARDUINO_ESP32_DEV)
+    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
+    // Send in chunks to avoid socket buffer overflow
+    if (_styleCssBuffer && _styleCssSize > 0) {
+        Serial.println("Serving style.css from pre-loaded DRAM buffer");
+        _server.setContentLength(_styleCssSize);
+        _server.send(200, "text/css", "");
+        
+        // Send content in chunks to avoid buffer overflow
+        size_t chunkSize = 1024;  // 1KB chunks
+        size_t offset = 0;
+        while (offset < _styleCssSize) {
+            size_t toSend = (_styleCssSize - offset > chunkSize) ? chunkSize : (_styleCssSize - offset);
+            // Create String from buffer chunk (sendContent requires String)
+            String chunk(_styleCssBuffer + offset, toSend);
+            _server.sendContent(chunk);
+            offset += toSend;
+        }
+        return;
+    } else {
+        Serial.println("ERROR: style.css buffer not available");
+        _server.send(500, "text/plain", "style.css not pre-loaded");
+        return;
+    }
+    #else
+    // Other boards: Read from SPIFFS directly
     File file = SPIFFS.open("/style.css", "r");
     if (file && file.size() > 0) {
         Serial.println("Serving style.css from SPIFFS");
-        Serial.printf("File size: %d bytes\n", file.size());
         _server.streamFile(file, "text/css");
         file.close();
         return;
     }
+    #endif
 
     Serial.println("ERROR: style.css not found in SPIFFS!");
     Serial.println("Please run 'pio run -t uploadfs' to upload web files");
@@ -565,14 +693,40 @@ void WebServerManager::handleAppJS() {
     _server.sendHeader("Pragma", "no-cache");
     _server.sendHeader("Expires", "0");
 
+    #if defined(ARDUINO_ESP32_DEV)
+    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
+    // Send in chunks to avoid socket buffer overflow
+    if (_appJsBuffer && _appJsSize > 0) {
+        Serial.println("Serving app.js from pre-loaded DRAM buffer");
+        _server.setContentLength(_appJsSize);
+        _server.send(200, "application/javascript", "");
+        
+        // Send content in chunks to avoid buffer overflow
+        size_t chunkSize = 1024;  // 1KB chunks
+        size_t offset = 0;
+        while (offset < _appJsSize) {
+            size_t toSend = (_appJsSize - offset > chunkSize) ? chunkSize : (_appJsSize - offset);
+            // Create String from buffer chunk (sendContent requires String)
+            String chunk(_appJsBuffer + offset, toSend);
+            _server.sendContent(chunk);
+            offset += toSend;
+        }
+        return;
+    } else {
+        Serial.println("ERROR: app.js buffer not available");
+        _server.send(500, "text/plain", "app.js not pre-loaded");
+        return;
+    }
+    #else
+    // Other boards: Read from SPIFFS directly
     File file = SPIFFS.open("/app.js", "r");
     if (file && file.size() > 0) {
         Serial.println("Serving app.js from SPIFFS");
-        Serial.printf("File size: %d bytes\n", file.size());
         _server.streamFile(file, "application/javascript");
         file.close();
         return;
     }
+    #endif
 
     Serial.println("ERROR: app.js not found in SPIFFS!");
     Serial.println("Please run 'pio run -t uploadfs' to upload web files");

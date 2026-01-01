@@ -267,7 +267,13 @@ void TimingCore::timingTask(void* parameter) {
           core->rssi_history_allocation_attempted = true;
           
           size_t required_bytes = RSSI_HISTORY_SIZE * sizeof(RSSISample);
-          core->rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+          // Use heap_caps_malloc to ensure buffer is in DRAM (cache-safe) for ESP32-WROOM-32D
+          // This prevents cache errors when accessing the buffer during cache-disabled operations
+          core->rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+          if (!core->rssi_history_buffer) {
+            // Fallback to regular malloc if heap_caps_malloc fails
+            core->rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+          }
           if (core->rssi_history_buffer) {
             memset(core->rssi_history_buffer, 0, required_bytes);
             if (core->debug_enabled) {

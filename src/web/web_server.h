@@ -55,6 +55,18 @@ private:
 
     TaskHandle_t _webTaskHandle;
 
+    // Pre-loaded SPIFFS file buffers (for ESP32-WROOM-32D cache safety)
+    // Files are loaded at startup before timing core is active
+    char* _indexHtmlBuffer;
+    size_t _indexHtmlSize;
+    char* _styleCssBuffer;
+    size_t _styleCssSize;
+    char* _appJsBuffer;
+    size_t _appJsSize;
+
+    // Pre-load SPIFFS files into DRAM buffers (called at startup)
+    void preloadSpiffsFiles();
+
     // Static task wrapper
     static void webServerTask(void* parameter);
 
