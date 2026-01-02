@@ -83,6 +83,20 @@
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
     // No status LED defined - board may have addressable LED (not yet configured)
+#elif defined(BOARD_ESP32_S3_SUPERMINI)
+    // ESP32-S3 SuperMini
+    // Compact ESP32-S3 board with 4MB flash, USB-C
+    // Available GPIOs: 1-21, 35-48 (avoid 43-46 if using USB/JTAG)
+    #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH2) - RSSI input from RX5808
+    #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
+    #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
+    #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
+    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for RotorHazard, HIGH/floating for WiFi)
+    #define USE_DMA_ADC         1     // Enabled for best RSSI performance
+    #define UART_BAUD_RATE      921600  // USB CDC for serial communication
+    #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
+    #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
+    #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for S3 memory constraints
 #elif defined(BOARD_T_ENERGY)
     // LilyGo T-Energy (ESP32-S3 with built-in battery)
     // Built-in 18650 battery slot with voltage sensing circuit
@@ -91,7 +105,7 @@
     #define RX5808_DATA_PIN     5    // GPIO11 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      7    // GPIO12 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      6    // GPIO10 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for WiFi mode, HIGH/floating for RotorHazard mode)
+    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for RotorHazard, HIGH/floating for WiFi)
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility (DMA ADC conflicts with analogRead on ADC1)
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
 
@@ -145,11 +159,11 @@
     #define RSSI_HISTORY_ENABLED 0     // Disable RSSI history for ESP32-WROOM-32D to prevent cache errors
 #endif
 
-// Mode selection (ESP32-C3 with pullup)
+// Mode selection (with internal pullup)
 // NOTE: On touch boards (ENABLE_LCD_UI), mode is controlled via LCD button instead of physical pin
-#define WIFI_MODE           LOW   // GND on switch pin = WiFi/Standalone mode
-#define ROTORHAZARD_MODE    HIGH  // HIGH (floating/pullup) = RotorHazard node mode (default)
-// Note: Floating (nothing connected) = ROTORHAZARD_MODE (default)
+#define WIFI_MODE           HIGH  // HIGH (floating/pullup) = WiFi/Standalone mode (default)
+#define ROTORHAZARD_MODE    LOW   // GND on switch pin = RotorHazard node mode
+// Note: Floating (nothing connected) = WIFI_MODE (default)
 
 // RX5808 frequency constants  
 #define MIN_FREQ            5645  // Minimum frequency (MHz)

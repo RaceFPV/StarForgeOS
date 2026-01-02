@@ -14,6 +14,8 @@
     #pragma message "BUILD: Waveshare ESP32-S3-Touch-LCD-2 detected"
 #elif defined(BOARD_JC2432W328C)
     #pragma message "BUILD: JC2432W328C detected"
+#elif defined(BOARD_ESP32_S3_SUPERMINI)
+    #pragma message "BUILD: ESP32-S3 SuperMini detected"
 #elif defined(BOARD_T_ENERGY)
     #pragma message "BUILD: LilyGo T-Energy (ESP32-S3) detected"
 #elif defined(BOARD_NUCLEARCOUNTER)
@@ -205,8 +207,8 @@ void setup() {
       // HIGH (button pressed) = STANDALONE, LOW (button not pressed) = ROTORHAZARD
       current_mode = (initial_switch_state == HIGH) ? MODE_STANDALONE : MODE_ROTORHAZARD;
     #else
-      // Default behavior: LOW (GND) = STANDALONE, HIGH/floating = ROTORHAZARD
-      current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
+      // Default behavior: HIGH/floating = STANDALONE (WiFi), LOW (GND) = ROTORHAZARD
+      current_mode = (initial_switch_state == HIGH) ? MODE_STANDALONE : MODE_ROTORHAZARD;
     #endif
   #endif
   
