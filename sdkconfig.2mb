@@ -1,5 +1,5 @@
-# ESP-IDF Configuration to silence boot messages
-# This file configures the ESP-IDF build system
+# ESP-IDF Configuration for 2MB Flash boards
+# This file configures the ESP-IDF build system for ESP32 boards with 2MB flash
 
 # Disable all logging at bootloader level
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
@@ -21,7 +21,6 @@ CONFIG_ESP_COREDUMP_ENABLE=n
 # Disable other verbose output
 CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT=y
 
-# Flash size configuration (default 4MB - most common)
-# Override in board-specific sdkconfig or use esp32dev-2mb environment for 2MB boards
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# Flash size configuration (2MB)
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
 

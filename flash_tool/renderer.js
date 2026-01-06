@@ -64,6 +64,8 @@ async function init() {
   // Setup event listeners
   document.getElementById('board-select').addEventListener('change', (e) => {
     selectedBoard = e.target.value;
+    // Remove highlight when user manually selects
+    e.target.style.border = '';
   });
   
   document.getElementById('port-select').addEventListener('change', (e) => {
@@ -320,6 +322,13 @@ async function detectBoard() {
       selectedBoard = result.suggestedBoard;
       showStatus(`✅ Detected: ${result.chipType} - Board set to ${boardConfigs[result.suggestedBoard].name}`, 'success');
       helpText.textContent = `✅ Auto-detected: ${result.chipType}`;
+    } else if (result.requiresManualSelection) {
+      // ESP32 detected but flash size unknown - require manual selection
+      showStatus(`⚠️ Detected: ${result.chipType} - Please manually select your board type (2MB or 4MB flash)`, 'warning');
+      helpText.textContent = `⚠️ Detected: ${result.chipType} - Select board type: ESP32 Dev Module (2MB) or ESP32 Dev Module (4MB)`;
+      // Highlight the board select dropdown
+      boardSelect.style.border = '2px solid #ff9800';
+      boardSelect.focus();
     } else {
       showStatus(`⚠️ Detected chip: ${result.chipType}, but couldn't match to a board. Please select manually.`, 'info');
       helpText.textContent = `Detected: ${result.chipType} - Select board type manually`;

@@ -59,7 +59,7 @@ const BOARD_CONFIGS = {
     }
   },
   'esp32dev': {
-    name: 'ESP32 Dev Module',
+    name: 'ESP32 Dev Module (4MB)',
     chip: 'esp32',
     flashAddresses: {
       bootloader: '0x1000',
@@ -67,6 +67,17 @@ const BOARD_CONFIGS = {
       nvs: '0x9000',
       firmware: '0x10000',
       spiffs: '0x290000'
+    }
+  },
+  'esp32dev-2mb': {
+    name: 'ESP32 Dev Module (2MB)',
+    chip: 'esp32',
+    flashAddresses: {
+      bootloader: '0x1000',
+      partitions: '0x8000',
+      nvs: '0x9000',
+      firmware: '0x10000',
+      spiffs: '0x1B0000'  // 2MB partition table: SPIFFS starts at 0x1B0000
     }
   },
   'esp32-s3': {
@@ -350,11 +361,13 @@ ipcMain.handle('detect-board', async (event, port) => {
       if (code === 0 || output.includes('Detecting chip type')) {
         // Parse chip type from output
         const chipType = parseChipType(output);
+        const suggestedBoard = suggestBoardFromChip(chipType, output);
         resolve({ 
           success: true, 
           chipType,
-          suggestedBoard: suggestBoardFromChip(chipType),
-          output 
+          suggestedBoard: suggestedBoard,
+          output,
+          requiresManualSelection: (chipType.toLowerCase().includes('esp32') && !chipType.toLowerCase().includes('esp32-c') && !chipType.toLowerCase().includes('esp32-s') && suggestedBoard === null)
         });
       } else {
         reject(new Error('Failed to detect chip'));
@@ -386,7 +399,8 @@ function parseChipType(output) {
 }
 
 // Suggest board configuration based on detected chip
-function suggestBoardFromChip(chipType) {
+// Note: For ESP32, we cannot auto-detect flash size, so we return null to force manual selection
+function suggestBoardFromChip(chipType, esptoolOutput = '') {
   const chipLower = chipType.toLowerCase();
   
   if (chipLower.includes('esp32-c3')) {
@@ -396,7 +410,23 @@ function suggestBoardFromChip(chipType) {
   } else if (chipLower.includes('esp32-s2')) {
     return 'esp32-s2';
   } else if (chipLower.includes('esp32')) {
-    return 'esp32dev'; // Original ESP32
+    // ESP32 boards: Cannot auto-detect flash size (2MB vs 4MB)
+    // Try to detect from esptool output if available
+    const flashSizeMatch = esptoolOutput.match(/Flash.*?size.*?(\d+)\s*MB/i) || 
+                          esptoolOutput.match(/Detected.*?(\d+)\s*MB/i) ||
+                          esptoolOutput.match(/Flash\s+ID:\s+0x[0-9a-f]+\s+.*?(\d+)\s*MB/i);
+    
+    if (flashSizeMatch) {
+      const flashSize = parseInt(flashSizeMatch[1]);
+      if (flashSize === 2) {
+        return 'esp32dev-2mb';
+      } else if (flashSize === 4) {
+        return 'esp32dev';
+      }
+    }
+    
+    // Cannot determine flash size - return null to force manual selection
+    return null;
   }
   
   return null;
@@ -1173,6 +1203,7 @@ async function flashWithPlatformIO(event, projectPath, boardType, port, customCo
       'esp32-c3': 'esp32-c3',
       'esp32-c6': 'esp32-c6',
       'esp32dev': 'esp32dev',
+      'esp32dev-2mb': 'esp32dev-2mb',
       'esp32-s3': 'esp32-s3',
       'esp32-s3-touch': 'esp32-s3-touch',
       'esp32-s3-t-energy': 'esp32-s3-t-energy',
