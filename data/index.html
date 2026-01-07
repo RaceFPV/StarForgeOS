@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>⚡ StarForge Race Timer</title>
+    <title>StarForge Race Timer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>⚡ STARFORGE TIMER</h1>
+            <h1>STARFORGE TIMER</h1>
             <div class="status-container">
                 <div class="status">
                     <div class="status-dot" id="statusDot"></div>
@@ -272,8 +272,7 @@
                 .then(data => {
                     console.log('Laps cleared:', data);
                     if (window.raceTimer) {
-                        window.raceTimer.laps = [];
-                        window.raceTimer.updateLapDisplay();
+                        window.raceTimer.clearLaps();  // Use method to properly reset lastLapCount
                         window.raceTimer.clearRecording();
                     }
                 })

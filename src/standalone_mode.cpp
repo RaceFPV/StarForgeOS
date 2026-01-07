@@ -106,6 +106,12 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     // Give WiFi time to stabilize
     delay(600);
 
+    // Allocate RSSI history buffer NOW (after WiFi init, before web server)
+    // This gives us the best chance of getting a contiguous block before heap fragmentation
+#if RSSI_HISTORY_ENABLED
+    _timingCore->allocateRSSIHistory();
+#endif
+
     // Initialize web server
     _webServer->begin(_timingCore, _settingsManager, &_raceActive, &_raceStartTime, &_laps);
 
@@ -114,12 +120,11 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _boardDisplays->initNuclearCounter(_wifiManager->getSSID());
 #endif
 
-    // Load saved settings from flash BEFORE creating LCD UI and web server task
+    // Load saved settings from flash BEFORE creating LCD UI
     // This ensures the correct values are displayed on boot
     _settingsManager->loadSettings(_timingCore);
 
-    // Create dedicated web server task
-    _webServer->startTask();
+    // Note: ESPAsyncWebServer doesn't need a separate task - it's async and handles requests automatically
 
 #if ENABLE_LCD_UI
     // IMPORTANT: Give WiFi more time to fully stabilize before initializing LCD

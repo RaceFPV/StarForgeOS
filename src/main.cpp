@@ -244,8 +244,8 @@ void setup() {
     Serial.println();
     Serial.println("Mode: STANDALONE/WIFI");
     Serial.println("Initializing timing core...");
-    WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
-    delay(500); // Increased delay for ESP32-WROOM-32D cache stability
+    // WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
+    // delay(500); // Increased delay for ESP32-WROOM-32D cache stability
   }
   
   // CRITICAL: For ESP32-WROOM-32D, delay timing task creation until AFTER WiFi is initialized
@@ -339,8 +339,7 @@ void initializeMode() {
     // Initialize standalone mode
     standalone.begin(&timing);
     
-    // The standalone.begin() should output WiFi connection details
-    Serial.println("Setup complete!");
+    // The standalone.begin() outputs WiFi connection details and "Setup complete!"
     Serial.println();
     
   } else {

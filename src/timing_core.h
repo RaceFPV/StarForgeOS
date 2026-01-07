@@ -157,6 +157,17 @@ public:
   void setDebugMode(bool debug_enabled);
   void setRX5808Settings(uint8_t band, uint8_t channel);
   
+  // Temporarily pause timing core (for file serving, etc.)
+  // Returns previous activation state so it can be restored
+  bool pauseTemporarily(uint32_t pauseMs = 500);
+  void resumeFromPause(bool wasActive);
+  
+#if RSSI_HISTORY_ENABLED
+  // Allocate RSSI history buffer early (call after WiFi init, before web server)
+  // Returns true if allocation succeeded
+  bool allocateRSSIHistory();
+#endif
+  
   // Configuration getters
   uint8_t getEnterRssi() const;
   uint8_t getExitRssi() const;

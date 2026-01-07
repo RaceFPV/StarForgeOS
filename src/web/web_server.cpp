@@ -6,6 +6,15 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <cstdio>
+
+// Buffer sizes for JSON responses (with safety margins)
+#define JSON_STATUS_BUFFER_SIZE 512      // Status response (most frequent)
+#define JSON_LAPS_BUFFER_SIZE 16384       // Laps response (100 laps max: ~160 bytes each)
+#define JSON_RSSI_BUFFER_SIZE 32768       // RSSI history (30K samples max: ~20 bytes each)
+#define JSON_CHANNELS_BUFFER_SIZE 2048    // Channels response (static data)
+#define JSON_SPIFFS_BUFFER_SIZE 2048     // SPIFFS info response
+#define JSON_CONFIG_BUFFER_SIZE 2048      // Config response
 
 // Helper function to find band/channel from frequency (same lookup as timing_core)
 // This ensures band/channel are updated when frequency is set, so they persist correctly
@@ -52,13 +61,7 @@ WebServerManager::WebServerManager() : _server(80), _timingCore(nullptr),
     , _cachedBatteryCharging(false)
     , _batteryDataValid(false)
 #endif
-    , _webTaskHandle(nullptr)
-    , _indexHtmlBuffer(nullptr)
-    , _indexHtmlSize(0)
-    , _styleCssBuffer(nullptr)
-    , _styleCssSize(0)
-    , _appJsBuffer(nullptr)
-    , _appJsSize(0) {
+{
     // Constructor
 }
 
@@ -70,7 +73,40 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
     _raceStartTime = raceStartTime;
     _laps = laps;
 
-    // Initialize mDNS for .local hostname
+    // CRITICAL: Wait for WiFi to be fully ready before initializing web server
+    // ESPAsyncWebServer requires TCP/IP stack to be initialized
+    Serial.println("Waiting for WiFi TCP/IP stack to be ready...");
+    int wifiWaitCount = 0;
+    const int maxWait = 100; // 10 seconds max wait
+    
+    // For AP mode, wait for AP IP to be assigned (indicates TCP/IP stack is ready)
+    if (WiFi.getMode() & WIFI_AP) {
+        while (WiFi.softAPIP().toString() == "0.0.0.0" && wifiWaitCount < maxWait) {
+            delay(100);
+            wifiWaitCount++;
+        }
+        if (WiFi.softAPIP().toString() != "0.0.0.0") {
+            Serial.printf("WiFi AP ready: %s\n", WiFi.softAPIP().toString().c_str());
+        } else {
+            Serial.println("WARNING: WiFi AP IP not assigned after 10 seconds!");
+        }
+    } else {
+        // For STA mode, wait for connection
+        while (WiFi.status() != WL_CONNECTED && wifiWaitCount < maxWait) {
+            delay(100);
+            wifiWaitCount++;
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.printf("WiFi STA ready: %s\n", WiFi.localIP().toString().c_str());
+        } else {
+            Serial.println("WARNING: WiFi STA not connected after 10 seconds!");
+        }
+    }
+    
+    // Additional small delay to ensure TCP/IP stack is fully initialized
+    delay(200);
+
+    // Initialize mDNS for .local hostname (after WiFi is ready)
     if (MDNS.begin(MDNS_HOSTNAME)) {
         Serial.printf("mDNS responder started: %s.local\n", MDNS_HOSTNAME);
         MDNS.addService("http", "tcp", WEB_SERVER_PORT);
@@ -122,239 +158,152 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
         Serial.println("======================");
     }
 
-    // Pre-load SPIFFS files into DRAM buffers (for ESP32-WROOM-32D cache safety)
-    // This must be done BEFORE timing core is activated to avoid cache conflicts
-    #if defined(ARDUINO_ESP32_DEV)
-    if (spiffsMounted) {
-        preloadSpiffsFiles();
+    // CRITICAL: Additional delay to ensure TCP/IP task is fully ready
+    // The TCP/IP stack needs time to initialize its internal structures
+    Serial.println("Waiting for TCP/IP stack to be fully ready...");
+    delay(500);  // Give TCP/IP task time to initialize
+
+    // Setup web server routes (ESPAsyncWebServer uses lambda callbacks)
+    // Route registration must happen AFTER TCP/IP stack is ready
+    Serial.println("Registering web server routes...");
+    
+    // Test route to verify server is working
+    _server.on("/test", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "text/plain", "Web server is working!");
+    });
+    
+    _server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request) { handleRoot(request); });
+    _server.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetStatus(request); });
+    _server.on("/api/laps", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetLaps(request); });
+    _server.on("/api/rssi_history", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetRSSIHistory(request); });
+    _server.on("/api/start_race", HTTP_POST, [this](AsyncWebServerRequest* request) { handleStartRace(request); });
+    _server.on("/api/stop_race", HTTP_POST, [this](AsyncWebServerRequest* request) { handleStopRace(request); });
+    _server.on("/api/clear_laps", HTTP_POST, [this](AsyncWebServerRequest* request) { handleClearLaps(request); });
+    _server.on("/api/set_frequency", HTTP_POST, [this](AsyncWebServerRequest* request) { handleSetFrequency(request); });
+    _server.on("/api/set_threshold", HTTP_POST, [this](AsyncWebServerRequest* request) { handleSetThreshold(request); });
+    _server.on("/api/get_channels", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetChannels(request); });
+    _server.on("/api/spiffs_info", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetSPIFFSInfo(request); });
+    _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetConfig(request); });
+    _server.on("/style.css", HTTP_GET, [this](AsyncWebServerRequest* request) { handleStyleCSS(request); });
+    _server.on("/app.js", HTTP_GET, [this](AsyncWebServerRequest* request) { handleAppJS(request); });
+    _server.onNotFound([this](AsyncWebServerRequest* request) { handleNotFound(request); });
+
+    Serial.println("Starting web server...");
+    
+    // Verify WiFi is still ready before starting server
+    if (WiFi.getMode() & WIFI_AP) {
+        IPAddress apIP = WiFi.softAPIP();
+        if (apIP.toString() == "0.0.0.0") {
+            Serial.println("ERROR: WiFi AP IP not assigned! Cannot start web server.");
+            return;
+        }
+        Serial.printf("WiFi AP IP confirmed: %s\n", apIP.toString().c_str());
     }
-    #endif
-
-    // Setup web server routes
-    _server.on("/", HTTP_GET, [this]() { handleRoot(); });
-    _server.on("/api/status", HTTP_GET, [this]() { handleGetStatus(); });
-    _server.on("/api/laps", HTTP_GET, [this]() { handleGetLaps(); });
-    _server.on("/api/rssi_history", HTTP_GET, [this]() { handleGetRSSIHistory(); });
-    _server.on("/api/start_race", HTTP_POST, [this]() { handleStartRace(); });
-    _server.on("/api/stop_race", HTTP_POST, [this]() { handleStopRace(); });
-    _server.on("/api/clear_laps", HTTP_POST, [this]() { handleClearLaps(); });
-    _server.on("/api/set_frequency", HTTP_POST, [this]() { handleSetFrequency(); });
-    _server.on("/api/set_threshold", HTTP_POST, [this]() { handleSetThreshold(); });
-    _server.on("/api/get_channels", HTTP_GET, [this]() { handleGetChannels(); });
-    _server.on("/api/spiffs_info", HTTP_GET, [this]() { handleGetSPIFFSInfo(); });
-    _server.on("/api/config", HTTP_GET, [this]() { handleGetConfig(); });
-    _server.on("/style.css", HTTP_GET, [this]() { handleStyleCSS(); });
-    _server.on("/app.js", HTTP_GET, [this]() { handleAppJS(); });
-    _server.onNotFound([this]() { handleNotFound(); });
-
+    
+    // Configure server with longer timeouts for large file transfers
+    // This helps prevent NS_ERROR_NET_PARTIAL_TRANSFER errors
     _server.begin();
-    Serial.println("Web server started");
+    
+    // Note: ESPAsyncWebServer doesn't expose timeout configuration directly,
+    // but AsyncTCP (which it uses) respects system TCP settings configured in platformio.ini
+    
+    Serial.println("Web server started (ESPAsyncWebServer)");
     Serial.printf("Access point: WiFi AP\n");
     Serial.printf("IP address: %s\n", WiFi.softAPIP().toString().c_str());
     Serial.printf("mDNS hostname: %s.local\n", MDNS_HOSTNAME);
+    Serial.printf("Server listening on port 80\n");
     Serial.println("Open browser to http://192.168.4.1 or http://sfos.local");
 }
 
-void WebServerManager::startTask() {
-    // Create dedicated web server task
-    // ESP32 dual-core: Pin to Core 0 (same as WiFi stack)
-    // ESP32-C3/C6 (single core): No core pinning
-#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
-    xTaskCreate(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle);
-    Serial.println("Web server task created");
-#else
-    xTaskCreatePinnedToCore(webServerTask, "WebServer", 8192, this, WEB_PRIORITY, &_webTaskHandle, 0);
-    Serial.println("Web server task created on Core 0");
-#endif
-}
-
-void WebServerManager::handleClient() {
-    _server.handleClient();
-}
-
-void WebServerManager::webServerTask(void* parameter) {
-    WebServerManager* self = static_cast<WebServerManager*>(parameter);
-    if (!self) {
-        vTaskDelete(nullptr);
-        return;
-    }
-
-    for (;;) {
-        self->_server.handleClient();
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
-void WebServerManager::preloadSpiffsFiles() {
-    // Pre-load SPIFFS files into DRAM buffers at startup (before timing core is active)
-    // This prevents cache conflicts when serving files at runtime
-    Serial.println("Pre-loading SPIFFS files into DRAM buffers...");
-
-    // Pre-load index.html
-    if (SPIFFS.exists("/index.html")) {
-        File file = SPIFFS.open("/index.html", "r");
-        if (file && file.size() > 0) {
-            _indexHtmlSize = file.size();
-            _indexHtmlBuffer = (char*)heap_caps_malloc(_indexHtmlSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (_indexHtmlBuffer) {
-                file.readBytes(_indexHtmlBuffer, _indexHtmlSize);
-                _indexHtmlBuffer[_indexHtmlSize] = '\0';
-                Serial.printf("Pre-loaded index.html: %d bytes\n", _indexHtmlSize);
-            } else {
-                Serial.println("ERROR: Failed to allocate buffer for index.html");
-                _indexHtmlSize = 0;
-            }
-            file.close();
-        }
-    }
-
-    // Pre-load style.css
-    if (SPIFFS.exists("/style.css")) {
-        File file = SPIFFS.open("/style.css", "r");
-        if (file && file.size() > 0) {
-            _styleCssSize = file.size();
-            _styleCssBuffer = (char*)heap_caps_malloc(_styleCssSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (_styleCssBuffer) {
-                file.readBytes(_styleCssBuffer, _styleCssSize);
-                _styleCssBuffer[_styleCssSize] = '\0';
-                Serial.printf("Pre-loaded style.css: %d bytes\n", _styleCssSize);
-            } else {
-                Serial.println("ERROR: Failed to allocate buffer for style.css");
-                _styleCssSize = 0;
-            }
-            file.close();
-        }
-    }
-
-    // Pre-load app.js
-    if (SPIFFS.exists("/app.js")) {
-        File file = SPIFFS.open("/app.js", "r");
-        if (file && file.size() > 0) {
-            _appJsSize = file.size();
-            _appJsBuffer = (char*)heap_caps_malloc(_appJsSize + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            if (_appJsBuffer) {
-                file.readBytes(_appJsBuffer, _appJsSize);
-                _appJsBuffer[_appJsSize] = '\0';
-                Serial.printf("Pre-loaded app.js: %d bytes\n", _appJsSize);
-            } else {
-                Serial.println("ERROR: Failed to allocate buffer for app.js");
-                _appJsSize = 0;
-            }
-            file.close();
-        }
-    }
-
-    Serial.println("SPIFFS file pre-loading complete");
-}
 
 // ===== HTTP Handlers =====
 
-void WebServerManager::handleRoot() {
-    _server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    _server.sendHeader("Pragma", "no-cache");
-    _server.sendHeader("Expires", "0");
-
-    #if defined(ARDUINO_ESP32_DEV)
-    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
-    // Send in chunks to avoid socket buffer overflow
-    if (_indexHtmlBuffer && _indexHtmlSize > 0) {
-        Serial.println("Serving index.html from pre-loaded DRAM buffer");
-        _server.setContentLength(_indexHtmlSize);
-        _server.send(200, "text/html", "");
-        
-        // Send content in chunks to avoid buffer overflow
-        size_t chunkSize = 1024;  // 1KB chunks
-        size_t offset = 0;
-        while (offset < _indexHtmlSize) {
-            size_t toSend = (_indexHtmlSize - offset > chunkSize) ? chunkSize : (_indexHtmlSize - offset);
-            // Create String from buffer chunk (sendContent requires String)
-            String chunk(_indexHtmlBuffer + offset, toSend);
-            _server.sendContent(chunk);
-            offset += toSend;
-        }
-        return;
+void WebServerManager::handleRoot(AsyncWebServerRequest* request) {
+    // ESPAsyncWebServer handles SPIFFS file serving efficiently with automatic chunking
+    // Don't open file twice - let ESPAsyncWebServer handle it internally to avoid conflicts
+    if (SPIFFS.exists("/index.html")) {
+        AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/index.html", "text/html");
+        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response->addHeader("Pragma", "no-cache");
+        response->addHeader("Expires", "0");
+        request->send(response);
     } else {
-        Serial.println("ERROR: index.html buffer not available");
-        _server.send(500, "text/plain", "index.html not pre-loaded");
-        return;
+        request->send(404, "text/plain", "index.html not found");
     }
-    #else
-    // Other boards: Read from SPIFFS directly
-    if (!SPIFFS.exists("/index.html")) {
-        Serial.println("ERROR: /index.html does not exist in SPIFFS");
-        _server.send(404, "text/plain", "index.html not found in SPIFFS");
-        return;
-    }
-
-    File file = SPIFFS.open("/index.html", "r");
-    if (!file) {
-        Serial.println("ERROR: Failed to open /index.html");
-        _server.send(500, "text/plain", "Failed to read index.html");
-        return;
-    }
-
-    if (file.size() == 0) {
-        Serial.println("ERROR: /index.html exists but is empty");
-        file.close();
-        _server.send(500, "text/plain", "index.html is empty");
-        return;
-    }
-
-    Serial.println("Serving index.html from SPIFFS");
-    _server.streamFile(file, "text/html");
-    file.close();
-    #endif
 }
 
-void WebServerManager::handleGetStatus() {
+void WebServerManager::handleGetStatus(AsyncWebServerRequest* request) {
+    // Pre-allocated buffer for status JSON (most frequently called handler)
+    static char jsonBuffer[JSON_STATUS_BUFFER_SIZE];
+    
     uint8_t current_rssi = _timingCore ? _timingCore->getCurrentRSSI() : 0;
     uint16_t frequency = _timingCore ? _timingCore->getState().frequency_mhz : 5800;
     uint8_t enter_rssi = _timingCore ? _timingCore->getEnterRssi() : 120;
     uint8_t exit_rssi = _timingCore ? _timingCore->getExitRssi() : 100;
     bool crossing = _timingCore ? _timingCore->isCrossing() : false;
+    size_t lapCount = _laps ? _laps->size() : 0;
+    uint32_t uptime = millis();
 
-    Serial.printf("[API] RSSI: %d, Freq: %d, Enter: %d, Exit: %d, Crossing: %s\n",
-                  current_rssi, frequency, enter_rssi, exit_rssi, crossing ? "true" : "false");
-
-    String json = "{";
-    json += "\"status\":\"" + String(*_raceActive ? "racing" : "ready") + "\",";
-    json += "\"lap_count\":" + String(_laps->size()) + ",";
-    json += "\"uptime\":" + String(millis()) + ",";
-    json += "\"rssi\":" + String(current_rssi) + ",";
-    json += "\"frequency\":" + String(frequency) + ",";
-    json += "\"enter_rssi\":" + String(enter_rssi) + ",";
-    json += "\"exit_rssi\":" + String(exit_rssi) + ",";
-    json += "\"threshold\":" + String(enter_rssi) + ",";  // Backward compatibility
-    json += "\"crossing\":" + String(crossing ? "true" : "false");
+    // Build JSON using snprintf (bounds-checked, efficient)
+    int len = snprintf(jsonBuffer, JSON_STATUS_BUFFER_SIZE,
+        "{\"status\":\"%s\",\"lap_count\":%zu,\"uptime\":%lu,\"rssi\":%u,\"frequency\":%u,"
+        "\"enter_rssi\":%u,\"exit_rssi\":%u,\"threshold\":%u,\"crossing\":%s",
+        (*_raceActive ? "racing" : "ready"), lapCount, uptime, current_rssi, frequency,
+        enter_rssi, exit_rssi, enter_rssi, crossing ? "true" : "false");
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
-    // Add battery status from cached values (updated via polling in StandaloneMode)
-    if (_batteryDataValid) {
-        json += ",\"battery\":{";
-        json += "\"voltage\":" + String(_cachedBatteryVoltage, 2) + ",";
-        json += "\"percentage\":" + String(_cachedBatteryPercentage);
+    // Add battery status if available
+    if (_batteryDataValid && len > 0 && len < (int)(JSON_STATUS_BUFFER_SIZE - 100)) {
 #if defined(USB_DETECT_PIN)
-        json += ",\"charging\":" + String(_cachedBatteryCharging ? "true" : "false");
+        len += snprintf(jsonBuffer + len, JSON_STATUS_BUFFER_SIZE - len,
+            ",\"battery\":{\"voltage\":%.2f,\"percentage\":%u,\"charging\":%s}",
+            _cachedBatteryVoltage, _cachedBatteryPercentage, _cachedBatteryCharging ? "true" : "false");
+#else
+        len += snprintf(jsonBuffer + len, JSON_STATUS_BUFFER_SIZE - len,
+            ",\"battery\":{\"voltage\":%.2f,\"percentage\":%u}",
+            _cachedBatteryVoltage, _cachedBatteryPercentage);
 #endif
-        json += "}";
     }
 #endif
 
-    json += "}";
-
-    Serial.printf("[API] JSON Response: %s\n", json.c_str());
-    _server.send(200, "application/json", json);
+    // Close JSON and verify buffer didn't overflow
+    if (len > 0 && len < (int)JSON_STATUS_BUFFER_SIZE - 2) {
+        jsonBuffer[len++] = '}';
+        jsonBuffer[len] = '\0';
+        request->send(200, "application/json", jsonBuffer);
+    } else {
+        // Buffer overflow protection
+        request->send(500, "application/json", "{\"error\":\"response_too_large\"}");
+    }
 }
 
-void WebServerManager::handleGetLaps() {
-    String json = "[";
+void WebServerManager::handleGetLaps(AsyncWebServerRequest* request) {
+    if (!_laps || !_raceStartTime) {
+        request->send(500, "application/json", "{\"error\":\"invalid_state\"}");
+        return;
+    }
 
-    for (size_t i = 0; i < _laps->size(); i++) {
-        if (i > 0) json += ",";
-        json += "{";
-        json += "\"lap_number\":" + String(i + 1) + ",";
-        json += "\"timestamp_ms\":" + String((*_laps)[i].timestamp_ms) + ",";
-        json += "\"peak_rssi\":" + String((*_laps)[i].rssi_peak) + ",";
+    // Pre-allocated buffer for laps JSON (MAX_LAPS_STORED = 100)
+    static char jsonBuffer[JSON_LAPS_BUFFER_SIZE];
+    int len = 0;
+    
+    // Limit to MAX_LAPS_STORED to prevent buffer overflow
+    size_t lapCount = _laps->size();
+    if (lapCount > MAX_LAPS_STORED) {
+        lapCount = MAX_LAPS_STORED;
+    }
+
+    len = snprintf(jsonBuffer, JSON_LAPS_BUFFER_SIZE, "[");
+    if (len < 0 || len >= (int)JSON_LAPS_BUFFER_SIZE) {
+        request->send(500, "application/json", "{\"error\":\"buffer_overflow\"}");
+        return;
+    }
+
+    for (size_t i = 0; i < lapCount; i++) {
+        if (i > 0) {
+            len += snprintf(jsonBuffer + len, JSON_LAPS_BUFFER_SIZE - len, ",");
+            if (len < 0 || len >= (int)JSON_LAPS_BUFFER_SIZE) break;
+        }
 
         uint32_t lapTime = 0;
         if (i == 0) {
@@ -362,41 +311,91 @@ void WebServerManager::handleGetLaps() {
         } else {
             lapTime = (*_laps)[i].timestamp_ms - (*_laps)[i-1].timestamp_ms;
         }
-        json += "\"lap_time_ms\":" + String(lapTime);
-        json += "}";
+
+        int written = snprintf(jsonBuffer + len, JSON_LAPS_BUFFER_SIZE - len,
+            "{\"lap_number\":%zu,\"timestamp_ms\":%lu,\"peak_rssi\":%u,\"lap_time_ms\":%lu}",
+            i + 1, (*_laps)[i].timestamp_ms, (*_laps)[i].rssi_peak, lapTime);
+        
+        if (written < 0 || written >= (int)(JSON_LAPS_BUFFER_SIZE - len)) {
+            // Buffer overflow - truncate response
+            break;
+        }
+        len += written;
     }
 
-    json += "]";
-    _server.send(200, "application/json", json);
+    // Close JSON array
+    if (len > 0 && len < (int)JSON_LAPS_BUFFER_SIZE - 2) {
+        len += snprintf(jsonBuffer + len, JSON_LAPS_BUFFER_SIZE - len, "]");
+        if (len > 0 && len < (int)JSON_LAPS_BUFFER_SIZE) {
+            request->send(200, "application/json", jsonBuffer);
+            return;
+        }
+    }
+
+    // Fallback on error
+    request->send(500, "application/json", "{\"error\":\"response_too_large\"}");
 }
 
-void WebServerManager::handleGetRSSIHistory() {
+void WebServerManager::handleGetRSSIHistory(AsyncWebServerRequest* request) {
 #if RSSI_HISTORY_ENABLED
     if (!_timingCore) {
-        _server.send(500, "application/json", "{\"error\":\"Timing core not available\"}");
+        request->send(500, "application/json", "{\"error\":\"Timing core not available\"}");
         return;
     }
 
     uint32_t count = _timingCore->getRSSIHistoryCount();
+    
+    // Limit response size to prevent buffer overflow (estimate ~20 bytes per sample)
+    // Allow up to ~1500 samples to fit in buffer (30KB / 20 bytes)
+    const uint32_t MAX_SAMPLES_IN_RESPONSE = (JSON_RSSI_BUFFER_SIZE - 100) / 20;
+    if (count > MAX_SAMPLES_IN_RESPONSE) {
+        count = MAX_SAMPLES_IN_RESPONSE;
+    }
 
-    String json = "{\"count\":" + String(count) + ",\"samples\":[";
+    static char jsonBuffer[JSON_RSSI_BUFFER_SIZE];
+    int len = snprintf(jsonBuffer, JSON_RSSI_BUFFER_SIZE, "{\"count\":%lu,\"samples\":[", count);
+    
+    if (len < 0 || len >= (int)JSON_RSSI_BUFFER_SIZE) {
+        request->send(500, "application/json", "{\"error\":\"buffer_overflow\"}");
+        return;
+    }
 
     RSSISample sample;
-    for (uint32_t i = 0; i < count; i++) {
+    uint32_t samplesAdded = 0;
+    for (uint32_t i = 0; i < count && samplesAdded < MAX_SAMPLES_IN_RESPONSE; i++) {
         if (_timingCore->getRSSIHistorySample(i, sample)) {
-            if (i > 0) json += ",";
-            json += "{\"t\":" + String(sample.timestamp_ms) + ",\"r\":" + String(sample.rssi) + "}";
+            if (samplesAdded > 0) {
+                len += snprintf(jsonBuffer + len, JSON_RSSI_BUFFER_SIZE - len, ",");
+                if (len < 0 || len >= (int)JSON_RSSI_BUFFER_SIZE) break;
+            }
+            
+            int written = snprintf(jsonBuffer + len, JSON_RSSI_BUFFER_SIZE - len,
+                "{\"t\":%lu,\"r\":%u}", sample.timestamp_ms, sample.rssi);
+            
+            if (written < 0 || written >= (int)(JSON_RSSI_BUFFER_SIZE - len)) {
+                break;  // Buffer overflow
+            }
+            len += written;
+            samplesAdded++;
         }
     }
 
-    json += "]}";
-    _server.send(200, "application/json", json);
+    // Close JSON
+    if (len > 0 && len < (int)JSON_RSSI_BUFFER_SIZE - 3) {
+        len += snprintf(jsonBuffer + len, JSON_RSSI_BUFFER_SIZE - len, "]}");
+        if (len > 0 && len < (int)JSON_RSSI_BUFFER_SIZE) {
+            request->send(200, "application/json", jsonBuffer);
+            return;
+        }
+    }
+
+    request->send(500, "application/json", "{\"error\":\"response_too_large\"}");
 #else
-    _server.send(501, "application/json", "{\"error\":\"RSSI history not enabled\"}");
+    request->send(501, "application/json", "{\"error\":\"RSSI history not enabled\"}");
 #endif
 }
 
-void WebServerManager::handleStartRace() {
+void WebServerManager::handleStartRace(AsyncWebServerRequest* request) {
     *_raceActive = true;
     *_raceStartTime = millis();
     _laps->clear();
@@ -408,24 +407,24 @@ void WebServerManager::handleStartRace() {
     }
 
     Serial.println("Race started!");
-    _server.send(200, "application/json", "{\"status\":\"race_started\"}");
+    request->send(200, "application/json", "{\"status\":\"race_started\"}");
 }
 
-void WebServerManager::handleStopRace() {
+void WebServerManager::handleStopRace(AsyncWebServerRequest* request) {
     *_raceActive = false;
     Serial.println("Race stopped!");
-    _server.send(200, "application/json", "{\"status\":\"race_stopped\"}");
+    request->send(200, "application/json", "{\"status\":\"race_stopped\"}");
 }
 
-void WebServerManager::handleClearLaps() {
+void WebServerManager::handleClearLaps(AsyncWebServerRequest* request) {
     _laps->clear();
     Serial.println("Laps cleared!");
-    _server.send(200, "application/json", "{\"status\":\"laps_cleared\"}");
+    request->send(200, "application/json", "{\"status\":\"laps_cleared\"}");
 }
 
-void WebServerManager::handleSetFrequency() {
-    if (_server.hasArg("frequency")) {
-        int freq = _server.arg("frequency").toInt();
+void WebServerManager::handleSetFrequency(AsyncWebServerRequest* request) {
+    if (request->hasParam("frequency")) {
+        int freq = request->getParam("frequency")->value().toInt();
         if (freq >= 5645 && freq <= 5945) {
             if (_timingCore) {
                 uint8_t band, channel;
@@ -437,19 +436,24 @@ void WebServerManager::handleSetFrequency() {
                 Serial.printf("Frequency set to: %d MHz (Band=%d, Channel=%d, saved)\n",
                              freq, band, channel);
             }
-            _server.send(200, "application/json", "{\"status\":\"frequency_set\",\"frequency\":" + String(freq) + "}");
+            // Use snprintf for efficient JSON building
+            char response[128];
+            snprintf(response, sizeof(response), "{\"status\":\"frequency_set\",\"frequency\":%d}", freq);
+            request->send(200, "application/json", response);
         } else {
-            _server.send(400, "application/json", "{\"error\":\"invalid_frequency\"}");
+            request->send(400, "application/json", "{\"error\":\"invalid_frequency\"}");
         }
     } else {
-        _server.send(400, "application/json", "{\"error\":\"missing_frequency\"}");
+        request->send(400, "application/json", "{\"error\":\"missing_frequency\"}");
     }
 }
 
-void WebServerManager::handleSetThreshold() {
-    if (_server.hasArg("enter_rssi") && _server.hasArg("exit_rssi")) {
-        int enter_rssi = _server.arg("enter_rssi").toInt();
-        int exit_rssi = _server.arg("exit_rssi").toInt();
+void WebServerManager::handleSetThreshold(AsyncWebServerRequest* request) {
+    static char response[128];
+    
+    if (request->hasParam("enter_rssi") && request->hasParam("exit_rssi")) {
+        int enter_rssi = request->getParam("enter_rssi")->value().toInt();
+        int exit_rssi = request->getParam("exit_rssi")->value().toInt();
         if (enter_rssi >= 0 && enter_rssi <= 255 && exit_rssi >= 0 && exit_rssi <= 255 && enter_rssi > exit_rssi) {
             if (_timingCore) {
                 _timingCore->setEnterRssi(enter_rssi);
@@ -458,15 +462,15 @@ void WebServerManager::handleSetThreshold() {
                     _settingsManager->saveSettings(_timingCore);
                 }
             }
-            _server.send(200, "application/json",
-                "{\"status\":\"threshold_set\",\"enter_rssi\":" + String(enter_rssi) +
-                ",\"exit_rssi\":" + String(exit_rssi) + "}");
+            snprintf(response, sizeof(response), "{\"status\":\"threshold_set\",\"enter_rssi\":%d,\"exit_rssi\":%d}",
+                    enter_rssi, exit_rssi);
+            request->send(200, "application/json", response);
             Serial.printf("Thresholds set: Enter=%d, Exit=%d (saved)\n", enter_rssi, exit_rssi);
         } else {
-            _server.send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
+            request->send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
         }
-    } else if (_server.hasArg("threshold")) {
-        int threshold = _server.arg("threshold").toInt();
+    } else if (request->hasParam("threshold")) {
+        int threshold = request->getParam("threshold")->value().toInt();
         if (threshold >= 0 && threshold <= 255) {
             uint8_t enter = threshold;
             uint8_t exit = (threshold > 20) ? (threshold - 20) : threshold;
@@ -478,104 +482,120 @@ void WebServerManager::handleSetThreshold() {
                     _settingsManager->saveSettings(_timingCore);
                 }
             }
-            _server.send(200, "application/json", "{\"status\":\"threshold_set\",\"threshold\":" + String(threshold) + "}");
+            snprintf(response, sizeof(response), "{\"status\":\"threshold_set\",\"threshold\":%d}", threshold);
+            request->send(200, "application/json", response);
             Serial.printf("Threshold set to: %d (migrated to Enter=%d, Exit=%d, saved)\n", threshold, enter, exit);
         } else {
-            _server.send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
+            request->send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
         }
     } else {
-        _server.send(400, "application/json", "{\"error\":\"missing_threshold\"}");
+        request->send(400, "application/json", "{\"error\":\"missing_threshold\"}");
     }
 }
 
-void WebServerManager::handleGetChannels() {
-    String json = "{";
-    json += "\"bands\":{";
-
-    // Raceband (R1-R8)
-    json += "\"Raceband\":[";
-    int raceband[] = {5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917};
-    for (int i = 0; i < 8; i++) {
-        if (i > 0) json += ",";
-        json += "{\"channel\":\"R" + String(i+1) + "\",\"frequency\":" + String(raceband[i]) + "}";
-    }
-    json += "],";
-
-    // Fatshark (F1-F8)
-    json += "\"Fatshark\":[";
-    int fatshark[] = {5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880};
-    for (int i = 0; i < 8; i++) {
-        if (i > 0) json += ",";
-        json += "{\"channel\":\"F" + String(i+1) + "\",\"frequency\":" + String(fatshark[i]) + "}";
-    }
-    json += "],";
-
-    // Boscam A (A1-A8)
-    json += "\"Boscam_A\":[";
-    int boscam_a[] = {5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725};
-    for (int i = 0; i < 8; i++) {
-        if (i > 0) json += ",";
-        json += "{\"channel\":\"A" + String(i+1) + "\",\"frequency\":" + String(boscam_a[i]) + "}";
-    }
-    json += "],";
-
-    // Boscam E (E1-E8)
-    json += "\"Boscam_E\":[";
-    int boscam_e[] = {5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945};
-    for (int i = 0; i < 8; i++) {
-        if (i > 0) json += ",";
-        json += "{\"channel\":\"E" + String(i+1) + "\",\"frequency\":" + String(boscam_e[i]) + "}";
-    }
-    json += "]";
-
-    json += "}}";
-
-    _server.send(200, "application/json", json);
+void WebServerManager::handleGetChannels(AsyncWebServerRequest* request) {
+    // Static data - use pre-allocated buffer
+    static const char* channelsJson = 
+        "{\"bands\":{"
+        "\"Raceband\":["
+        "{\"channel\":\"R1\",\"frequency\":5658},{\"channel\":\"R2\",\"frequency\":5695},"
+        "{\"channel\":\"R3\",\"frequency\":5732},{\"channel\":\"R4\",\"frequency\":5769},"
+        "{\"channel\":\"R5\",\"frequency\":5806},{\"channel\":\"R6\",\"frequency\":5843},"
+        "{\"channel\":\"R7\",\"frequency\":5880},{\"channel\":\"R8\",\"frequency\":5917}],"
+        "\"Fatshark\":["
+        "{\"channel\":\"F1\",\"frequency\":5740},{\"channel\":\"F2\",\"frequency\":5760},"
+        "{\"channel\":\"F3\",\"frequency\":5780},{\"channel\":\"F4\",\"frequency\":5800},"
+        "{\"channel\":\"F5\",\"frequency\":5820},{\"channel\":\"F6\",\"frequency\":5840},"
+        "{\"channel\":\"F7\",\"frequency\":5860},{\"channel\":\"F8\",\"frequency\":5880}],"
+        "\"Boscam_A\":["
+        "{\"channel\":\"A1\",\"frequency\":5865},{\"channel\":\"A2\",\"frequency\":5845},"
+        "{\"channel\":\"A3\",\"frequency\":5825},{\"channel\":\"A4\",\"frequency\":5805},"
+        "{\"channel\":\"A5\",\"frequency\":5785},{\"channel\":\"A6\",\"frequency\":5765},"
+        "{\"channel\":\"A7\",\"frequency\":5745},{\"channel\":\"A8\",\"frequency\":5725}],"
+        "\"Boscam_E\":["
+        "{\"channel\":\"E1\",\"frequency\":5705},{\"channel\":\"E2\",\"frequency\":5685},"
+        "{\"channel\":\"E3\",\"frequency\":5665},{\"channel\":\"E4\",\"frequency\":5645},"
+        "{\"channel\":\"E5\",\"frequency\":5885},{\"channel\":\"E6\",\"frequency\":5905},"
+        "{\"channel\":\"E7\",\"frequency\":5925},{\"channel\":\"E8\",\"frequency\":5945}]"
+        "}}";
+    
+    request->send(200, "application/json", channelsJson);
 }
 
-void WebServerManager::handleGetSPIFFSInfo() {
-    String json = "{";
-    json += "\"mounted\":";
-    json += SPIFFS.begin(false) ? "true" : "false";
-    json += ",";
+void WebServerManager::handleGetSPIFFSInfo(AsyncWebServerRequest* request) {
+    static char jsonBuffer[JSON_SPIFFS_BUFFER_SIZE];
+    
+    bool mounted = SPIFFS.begin(false);
+    int len = snprintf(jsonBuffer, JSON_SPIFFS_BUFFER_SIZE, "{\"mounted\":%s,", mounted ? "true" : "false");
+    
+    if (len < 0 || len >= (int)JSON_SPIFFS_BUFFER_SIZE) {
+        request->send(500, "application/json", "{\"error\":\"buffer_overflow\"}");
+        return;
+    }
 
-    if (SPIFFS.begin(false)) {
+    if (mounted) {
         size_t totalBytes = SPIFFS.totalBytes();
         size_t usedBytes = SPIFFS.usedBytes();
-        json += "\"total_bytes\":" + String(totalBytes) + ",";
-        json += "\"used_bytes\":" + String(usedBytes) + ",";
-        json += "\"free_bytes\":" + String(totalBytes - usedBytes) + ",";
+        len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len,
+            "\"total_bytes\":%zu,\"used_bytes\":%zu,\"free_bytes\":%zu,\"files\":[",
+            totalBytes, usedBytes, totalBytes - usedBytes);
+        
+        if (len < 0 || len >= (int)JSON_SPIFFS_BUFFER_SIZE) {
+            request->send(500, "application/json", "{\"error\":\"buffer_overflow\"}");
+            return;
+        }
 
-        json += "\"files\":[";
         File root = SPIFFS.open("/");
         if (root && root.isDirectory()) {
             File file = root.openNextFile();
             bool first = true;
-            while (file) {
-                if (!first) json += ",";
-                json += "{";
-                json += "\"name\":\"" + String(file.name()) + "\",";
-                json += "\"size\":" + String(file.size());
-                json += "}";
+            int fileCount = 0;
+            const int MAX_FILES = 20;  // Limit files to prevent buffer overflow
+            
+            while (file && fileCount < MAX_FILES) {
+                if (!first) {
+                    len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len, ",");
+                    if (len < 0 || len >= (int)JSON_SPIFFS_BUFFER_SIZE) break;
+                }
+                
+                // Escape filename and limit length to prevent overflow
+                const char* name = file.name();
+                size_t nameLen = strlen(name);
+                if (nameLen > 64) nameLen = 64;  // Limit filename length
+                
+                len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len,
+                    "{\"name\":\"%.*s\",\"size\":%zu}", (int)nameLen, name, file.size());
+                
+                if (len < 0 || len >= (int)JSON_SPIFFS_BUFFER_SIZE) break;
+                
                 first = false;
+                fileCount++;
                 file = root.openNextFile();
             }
         }
-        json += "]";
+        
+        len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len, "]");
     } else {
-        json += "\"error\":\"SPIFFS not mounted\"";
+        len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len, "\"error\":\"SPIFFS not mounted\"");
     }
 
-    json += "}";
-    _server.send(200, "application/json", json);
+    if (len > 0 && len < (int)JSON_SPIFFS_BUFFER_SIZE - 2) {
+        len += snprintf(jsonBuffer + len, JSON_SPIFFS_BUFFER_SIZE - len, "}");
+        if (len > 0 && len < (int)JSON_SPIFFS_BUFFER_SIZE) {
+            request->send(200, "application/json", jsonBuffer);
+            return;
+        }
+    }
+
+    request->send(500, "application/json", "{\"error\":\"response_too_large\"}");
 }
 
-void WebServerManager::handleGetConfig() {
+void WebServerManager::handleGetConfig(AsyncWebServerRequest* request) {
     Preferences prefs;
 
     if (!prefs.begin("sfos_pins", true)) {
         Serial.println("API: Failed to open NVS for reading pin config");
-        _server.send(404, "application/json", "{\"error\":\"Pin config not found in NVS\",\"exists\":false}");
+        request->send(404, "application/json", "{\"error\":\"Pin config not found in NVS\",\"exists\":false}");
         return;
     }
 
@@ -583,10 +603,13 @@ void WebServerManager::handleGetConfig() {
     if (enabled == 0) {
         prefs.end();
         Serial.println("API: Custom pin config not enabled in NVS");
-        _server.send(404, "application/json", "{\"error\":\"Custom pin config not enabled\",\"exists\":false}");
+        request->send(404, "application/json", "{\"error\":\"Custom pin config not enabled\",\"exists\":false}");
         return;
     }
 
+    // Use static buffer for JSON serialization to prevent stack overflow
+    static char jsonBuffer[JSON_CONFIG_BUFFER_SIZE];
+    
     DynamicJsonDocument configDoc(1024);
     JsonObject customPins = configDoc.createNestedObject("custom_pins");
     customPins["enabled"] = true;
@@ -631,116 +654,112 @@ void WebServerManager::handleGetConfig() {
     responseDoc["source"] = "NVS";
     responseDoc["content"] = configDoc;
 
-    String response;
-    serializeJson(responseDoc, response);
+    // Serialize to static buffer with size limit
+    size_t bytesWritten = serializeJson(responseDoc, jsonBuffer, JSON_CONFIG_BUFFER_SIZE);
+    
+    if (bytesWritten == 0 || bytesWritten >= JSON_CONFIG_BUFFER_SIZE) {
+        // Buffer overflow or serialization failed
+        request->send(500, "application/json", "{\"error\":\"config_too_large\"}");
+        return;
+    }
 
     Serial.println("API: Serving pin config from NVS");
-    _server.send(200, "application/json", response);
+    request->send(200, "application/json", jsonBuffer);
 }
 
-void WebServerManager::handleStyleCSS() {
-    _server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    _server.sendHeader("Pragma", "no-cache");
-    _server.sendHeader("Expires", "0");
-
-    #if defined(ARDUINO_ESP32_DEV)
-    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
-    // Send in chunks to avoid socket buffer overflow
-    if (_styleCssBuffer && _styleCssSize > 0) {
-        Serial.println("Serving style.css from pre-loaded DRAM buffer");
-        _server.setContentLength(_styleCssSize);
-        _server.send(200, "text/css", "");
+void WebServerManager::handleStyleCSS(AsyncWebServerRequest* request) {
+    // ESPAsyncWebServer handles SPIFFS file serving efficiently with automatic chunking
+    // Temporarily pause timing core to give file transfer full CPU (prevents partial transfer errors)
+    bool timingWasActive = false;
+    if (_timingCore) {
+        timingWasActive = _timingCore->pauseTemporarily(3000);
+    }
+    
+    if (SPIFFS.exists("/style.css")) {
+        // Get file size to calculate pause duration (conservative estimate)
+        File testFile = SPIFFS.open("/style.css", "r");
+        size_t fileSize = testFile ? testFile.size() : 20000;  // Default to 20KB if can't read
+        if (testFile) testFile.close();
         
-        // Send content in chunks to avoid buffer overflow
-        size_t chunkSize = 1024;  // 1KB chunks
-        size_t offset = 0;
-        while (offset < _styleCssSize) {
-            size_t toSend = (_styleCssSize - offset > chunkSize) ? chunkSize : (_styleCssSize - offset);
-            // Create String from buffer chunk (sendContent requires String)
-            String chunk(_styleCssBuffer + offset, toSend);
-            _server.sendContent(chunk);
-            offset += toSend;
-        }
-        return;
-    } else {
-        Serial.println("ERROR: style.css buffer not available");
-        _server.send(500, "text/plain", "style.css not pre-loaded");
-        return;
-    }
-    #else
-    // Other boards: Read from SPIFFS directly
-    File file = SPIFFS.open("/style.css", "r");
-    if (file && file.size() > 0) {
-        Serial.println("Serving style.css from SPIFFS");
-        _server.streamFile(file, "text/css");
-        file.close();
-        return;
-    }
-    #endif
-
-    Serial.println("ERROR: style.css not found in SPIFFS!");
-    Serial.println("Please run 'pio run -t uploadfs' to upload web files");
-
-    _server.send(200, "text/css",
-        "body{font-family:Arial,sans-serif;background:#1a1f35;color:#fff;padding:40px;text-align:center;}"
-        "h1{color:#ff7b00;margin-bottom:20px;}"
-        ".error{background:#2a0f0f;border:2px solid #ff3838;border-radius:8px;padding:30px;max-width:600px;margin:0 auto;}"
-    );
-}
-
-void WebServerManager::handleAppJS() {
-    _server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    _server.sendHeader("Pragma", "no-cache");
-    _server.sendHeader("Expires", "0");
-
-    #if defined(ARDUINO_ESP32_DEV)
-    // ESP32-WROOM-32D: Use pre-loaded buffer (no SPIFFS access at runtime)
-    // Send in chunks to avoid socket buffer overflow
-    if (_appJsBuffer && _appJsSize > 0) {
-        Serial.println("Serving app.js from pre-loaded DRAM buffer");
-        _server.setContentLength(_appJsSize);
-        _server.send(200, "application/javascript", "");
+        // Calculate pause time: file size / estimated WiFi speed (conservative: ~50KB/s)
+        // Add 50% margin for safety: (fileSize / 50000) * 1500ms, minimum 2 seconds
+        uint32_t pauseMs = ((fileSize * 1500) / 50000) + 2000;  // At least 2 seconds, more for larger files
         
-        // Send content in chunks to avoid buffer overflow
-        size_t chunkSize = 1024;  // 1KB chunks
-        size_t offset = 0;
-        while (offset < _appJsSize) {
-            size_t toSend = (_appJsSize - offset > chunkSize) ? chunkSize : (_appJsSize - offset);
-            // Create String from buffer chunk (sendContent requires String)
-            String chunk(_appJsBuffer + offset, toSend);
-            _server.sendContent(chunk);
-            offset += toSend;
+        AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/style.css", "text/css");
+        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response->addHeader("Pragma", "no-cache");
+        response->addHeader("Expires", "0");
+        request->send(response);
+        
+        // ESPAsyncWebServer serves files asynchronously, so we need to keep timing paused
+        // for the duration of the transfer. Use calculated pause time with margin
+        uint32_t pauseStart = millis();
+        while (millis() - pauseStart < pauseMs) {
+            delay(100);  // Yield to TCP/IP task every 100ms
         }
-        return;
     } else {
-        Serial.println("ERROR: app.js buffer not available");
-        _server.send(500, "text/plain", "app.js not pre-loaded");
-        return;
+        // Fallback error CSS
+        request->send(200, "text/css",
+            "body{font-family:Arial,sans-serif;background:#1a1f35;color:#fff;padding:40px;text-align:center;}"
+            "h1{color:#ff7b00;margin-bottom:20px;}"
+            ".error{background:#2a0f0f;border:2px solid #ff3838;border-radius:8px;padding:30px;max-width:600px;margin:0 auto;}"
+        );
     }
-    #else
-    // Other boards: Read from SPIFFS directly
-    File file = SPIFFS.open("/app.js", "r");
-    if (file && file.size() > 0) {
-        Serial.println("Serving app.js from SPIFFS");
-        _server.streamFile(file, "application/javascript");
-        file.close();
-        return;
+    
+    // Resume timing core after file transfer completes
+    if (_timingCore) {
+        _timingCore->resumeFromPause(timingWasActive);
     }
-    #endif
-
-    Serial.println("ERROR: app.js not found in SPIFFS!");
-    Serial.println("Please run 'pio run -t uploadfs' to upload web files");
-
-    _server.send(200, "application/javascript",
-        "console.error('app.js not found in SPIFFS - Please upload filesystem');"
-        "document.body.innerHTML='<div class=\"error\"><h1>⚠️ Files Missing</h1>"
-        "<p>Web interface files not found on device.</p>"
-        "<p>Please run: <code>pio run -t uploadfs</code></p></div>';"
-    );
 }
 
-void WebServerManager::handleNotFound() {
-    _server.send(404, "text/plain", "File not found");
+void WebServerManager::handleAppJS(AsyncWebServerRequest* request) {
+    // ESPAsyncWebServer handles SPIFFS file serving efficiently with automatic chunking
+    // Temporarily pause timing core to give file transfer full CPU (prevents partial transfer errors)
+    bool timingWasActive = false;
+    if (_timingCore) {
+        timingWasActive = _timingCore->pauseTemporarily(5000);
+    }
+    
+    if (SPIFFS.exists("/app.js")) {
+        // Get file size to calculate pause duration (conservative estimate)
+        File testFile = SPIFFS.open("/app.js", "r");
+        size_t fileSize = testFile ? testFile.size() : 45000;  // Default to 45KB if can't read
+        if (testFile) testFile.close();
+        
+        // Calculate pause time: file size / estimated WiFi speed (conservative: ~50KB/s)
+        // Add 50% margin for safety: (fileSize / 50000) * 1500ms, minimum 3 seconds
+        uint32_t pauseMs = ((fileSize * 1500) / 50000) + 3000;  // At least 3 seconds, more for larger files
+        
+        AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/app.js", "application/javascript");
+        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response->addHeader("Pragma", "no-cache");
+        response->addHeader("Expires", "0");
+        request->send(response);
+        
+        // ESPAsyncWebServer serves files asynchronously, so we need to keep timing paused
+        // for the duration of the transfer. Use calculated pause time with margin
+        uint32_t pauseStart = millis();
+        while (millis() - pauseStart < pauseMs) {
+            delay(100);  // Yield to TCP/IP task every 100ms
+        }
+    } else {
+        // Fallback error JavaScript
+        request->send(200, "application/javascript",
+            "console.error('app.js not found in SPIFFS - Please upload filesystem');"
+            "document.body.innerHTML='<div class=\"error\"><h1>⚠️ Files Missing</h1>"
+            "<p>Web interface files not found on device.</p>"
+            "<p>Please run: <code>pio run -t uploadfs</code></p></div>';"
+        );
+    }
+    
+    // Resume timing core after file transfer completes
+    if (_timingCore) {
+        _timingCore->resumeFromPause(timingWasActive);
+    }
+}
+
+void WebServerManager::handleNotFound(AsyncWebServerRequest* request) {
+    request->send(404, "text/plain", "File not found");
 }
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)

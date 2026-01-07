@@ -137,7 +137,7 @@ void TimingCore::begin() {
   if (use_dma) {
     setupADC_DMA();
     if (debug_enabled) {
-      Serial.println("DMA ADC initialized - continuous background sampling at 10kHz");
+      Serial.printf("DMA ADC initialized - continuous background sampling at %d Hz\n", DMA_SAMPLE_RATE);
     }
   } else {
     // CRITICAL: Configure ADC attenuation for full 0-3.3V range
@@ -150,15 +150,6 @@ void TimingCore::begin() {
     }
   }
   
-  // Test ADC reading immediately
-  uint16_t test_adc = analogRead(g_rssi_input_pin);
-  if (debug_enabled) {
-    Serial.printf("ADC test reading on pin %d: %d (raw 12-bit)\n", g_rssi_input_pin, test_adc);
-    uint16_t clamped = (test_adc > 2047) ? 2047 : test_adc;
-    uint8_t final_rssi = clamped >> 3;
-    Serial.printf("Clamped: %d, Final RSSI: %d (0-255 range)\n", clamped, final_rssi);
-  }
-  
   // Initialize RX5808 module
   setupRX5808();
   
@@ -169,9 +160,6 @@ void TimingCore::begin() {
   for (int i = 0; i < 10; i++) {
     uint8_t raw_rssi = use_dma ? readRawRSSI_DMA() : readRawRSSI();
     rssi_filter.filter(raw_rssi, 0);
-    if (debug_enabled) {
-      Serial.printf("Initial RSSI sample %d: %d (filtered: %.1f)\n", i, raw_rssi, rssi_filter.lastMeasurement());
-    }
   }
   
   // Note: RSSI calibration will be done after debug mode is set
@@ -211,7 +199,6 @@ void TimingCore::process() {
 // FreeRTOS task for timing processing (ESP32-C3 single core)
 void TimingCore::timingTask(void* parameter) {
   TimingCore* core = static_cast<TimingCore*>(parameter);
-  uint32_t debug_counter = 0;
   
   // Performance monitoring variables
   uint32_t loop_count = 0;
@@ -241,18 +228,6 @@ void TimingCore::timingTask(void* parameter) {
       // Read and filter RSSI - use DMA if enabled
       uint8_t raw_rssi = core->use_dma ? core->readRawRSSI_DMA() : core->readRawRSSI();
       
-      // Debug output every 1000 iterations (about once per second) - only in debug mode
-      debug_counter++;
-      if (debug_counter % 1000 == 0 && core->debug_enabled) {
-        uint16_t raw_adc = analogRead(g_rssi_input_pin);
-        uint16_t clamped = (raw_adc > 2047) ? 2047 : raw_adc;
-        Serial.printf("[TimingTask] Mode: %s, ADC: %d, Clamped: %d, RSSI: %d, Enter: %d, Exit: %d, Crossing: %s, FreqStable: %s\n", 
-                      core->use_dma ? "DMA" : "POLLED",
-                      raw_adc, clamped, raw_rssi, core->state.enter_rssi, core->state.exit_rssi,
-                      (raw_rssi >= core->state.enter_rssi) ? "YES" : "NO",
-                      core->recent_freq_change ? "NO" : "YES");
-      }
-      
       uint8_t filtered_rssi = core->filterRSSI(raw_rssi);
       core->state.current_rssi = filtered_rssi;
 
@@ -267,20 +242,36 @@ void TimingCore::timingTask(void* parameter) {
           core->rssi_history_allocation_attempted = true;
           
           size_t required_bytes = RSSI_HISTORY_SIZE * sizeof(RSSISample);
-          // Use heap_caps_malloc to ensure buffer is in DRAM (cache-safe) for ESP32-WROOM-32D
-          // This prevents cache errors when accessing the buffer during cache-disabled operations
-          core->rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+          
+          // Try multiple allocation strategies to handle heap fragmentation
+          // Strategy 1: Try regular malloc first (least restrictive, allows any memory)
+          core->rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+          
           if (!core->rssi_history_buffer) {
-            // Fallback to regular malloc if heap_caps_malloc fails
-            core->rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+            // Strategy 2: Try MALLOC_CAP_DEFAULT (allows both internal and external memory)
+            core->rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_DEFAULT);
           }
-          if (core->rssi_history_buffer) {
+          
+          if (!core->rssi_history_buffer) {
+            // Strategy 3: Try MALLOC_CAP_INTERNAL (internal DRAM only, cache-safe for WROOM)
+            core->rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+          }
+          
+          if (!core->rssi_history_buffer) {
+            // Strategy 4: Try allocating in smaller chunks and see if we can get any memory
+            // This helps diagnose if it's a fragmentation issue
+            void* test_alloc = malloc(1024);
+            if (test_alloc) {
+              free(test_alloc);
+              Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - heap fragmented (small allocs work)\n", required_bytes / 1024);
+            } else {
+              Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - out of memory\n", required_bytes / 1024);
+            }
+          } else {
             memset(core->rssi_history_buffer, 0, required_bytes);
             if (core->debug_enabled) {
               Serial.printf("RSSI history buffer allocated: %d KB\n", required_bytes / 1024);
             }
-          } else {
-            Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB)\n", required_bytes / 1024);
           }
         }
         
@@ -374,9 +365,12 @@ void TimingCore::timingTask(void* parameter) {
           }
         } else {
           // Lap rejected - too soon after last lap
-          if (core->debug_enabled) {
+          // Only print rejection message once per second to avoid spam
+          static uint32_t last_rejection_print = 0;
+          if (core->debug_enabled && (current_time - last_rejection_print >= 1000)) {
             Serial.printf("Lap rejected - Too soon (only %dms since last lap, need %dms)\n", 
                          time_since_last_lap, MIN_LAP_TIME_MS);
+            last_rejection_print = current_time;
           }
         }
       }
@@ -416,8 +410,8 @@ void TimingCore::timingTask(void* parameter) {
       total_loop_time = 0;
     }
     
-    // Small delay to prevent task from consuming all CPU
-    vTaskDelay(pdMS_TO_TICKS(1));
+    // No delay needed here - rate limiting is handled by TIMING_INTERVAL_MS check at top of loop
+    // The check at line 233 already ensures we don't process more than once per TIMING_INTERVAL_MS
   }
 }
 
@@ -707,22 +701,11 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   uint16_t A = tf % 32;
   uint16_t vtxHex = (N << 7) + A;
   
-  if (debug_enabled) {
-    Serial.printf("\n=== RTC6715 Frequency Change ===\n");
-    Serial.printf("Target: %d MHz (tf=%d, N=%d, A=%d, reg=0x%04X)\n", 
-                  freq_mhz, tf, N, A, vtxHex);
-    Serial.printf("Pins: DATA=%d, CLK=%d, SEL=%d\n", g_rx5808_data_pin, g_rx5808_clk_pin, g_rx5808_sel_pin);
-  }
-  
   // Send frequency to RX5808 using standard 25-bit protocol:
   // 4 bits: Register address (0x1)
   // 1 bit: Write flag (1)
   // 16 bits: Register value (LSB first)
   // 4 bits: Padding (0)
-  
-  if (debug_enabled) {
-    Serial.print("Sending bits: ");
-  }
   
   digitalWrite(g_rx5808_sel_pin, HIGH);
   digitalWrite(g_rx5808_sel_pin, LOW);
@@ -733,27 +716,13 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   sendRX5808Bit(0);  // bit 2
   sendRX5808Bit(0);  // bit 3
   
-  if (debug_enabled) {
-    Serial.print("0001 ");  // Register 0x1 (LSB first = 1000 binary = 0x1)
-  }
-  
   // Write flag
   sendRX5808Bit(1);
-  
-  if (debug_enabled) {
-    Serial.print("1 ");  // Write flag
-  }
   
   // Data bits D0-D15 (LSB first)
   for (uint8_t i = 0; i < 16; i++) {
     uint8_t bit = (vtxHex >> i) & 0x1;
     sendRX5808Bit(bit);
-    if (debug_enabled && i % 4 == 3) {
-      Serial.print(" ");  // Space every 4 bits for readability
-    }
-    if (debug_enabled) {
-      Serial.print(bit);
-    }
   }
   
   // Padding bits D16-D19
@@ -761,10 +730,6 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   sendRX5808Bit(0);
   sendRX5808Bit(0);
   sendRX5808Bit(0);
-  
-  if (debug_enabled) {
-    Serial.println(" 0000");  // Padding
-  }
   
   digitalWrite(g_rx5808_sel_pin, HIGH);
   delay(2);
@@ -778,20 +743,6 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   recent_freq_change = true;
   freq_change_time = millis();
   lastRX5808BusTimeMs = freq_change_time;  // Track last bus access time
-  
-  if (debug_enabled) {
-    Serial.printf("SPI sequence sent successfully\n");
-    Serial.printf("Frequency set to %d MHz (RSSI unstable for %dms)\n", freq_mhz, RX5808_MIN_TUNETIME);
-    Serial.printf("Waiting for module to tune...\n");
-    
-    // Wait for tuning, then read RSSI to verify
-    delay(RX5808_MIN_TUNETIME + 10);
-    uint16_t test_adc = analogRead(g_rssi_input_pin);
-    uint8_t test_rssi = (test_adc > 2047 ? 2047 : test_adc) >> 3;
-    Serial.printf("RSSI after freq change: %d (ADC: %d)\n", test_rssi, test_adc);
-    Serial.printf("If RSSI doesn't change between frequencies, check SPI_EN pin!\n");
-    Serial.printf("=================================\n\n");
-  }
 }
 
 void TimingCore::sendRX5808Bit(uint8_t bit_value) {
@@ -910,6 +861,30 @@ void TimingCore::setThreshold(uint8_t threshold) {
 void TimingCore::setMinLapMs(uint32_t min_lap_ms) {
   if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
     this->min_lap_ms = min_lap_ms;
+    xSemaphoreGive(timing_mutex);
+  }
+}
+
+bool TimingCore::pauseTemporarily(uint32_t pauseMs) {
+  // Temporarily pause timing core to give other tasks (like file serving) full CPU
+  // Returns the previous activation state so it can be restored
+  bool wasActive = false;
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
+    wasActive = state.activated;
+    if (wasActive) {
+      state.activated = false;
+    }
+    xSemaphoreGive(timing_mutex);
+    // Give timing task time to see the pause and yield
+    delay(10);
+  }
+  return wasActive;
+}
+
+void TimingCore::resumeFromPause(bool wasActive) {
+  // Restore timing core to previous activation state
+  if (xSemaphoreTake(timing_mutex, portMAX_DELAY)) {
+    state.activated = wasActive;
     xSemaphoreGive(timing_mutex);
   }
 }
@@ -1230,8 +1205,11 @@ void TimingCore::setupADC_DMA() {
     .bit_width = ADC_BITWIDTH_12,    // 12-bit resolution
   };
   
-  // ESP32-C6 requires TYPE2 format, older chips use TYPE1
-  #if defined(CONFIG_IDF_TARGET_ESP32C6)
+  // ESP32-C3, ESP32-C6, ESP32-S2, ESP32-S3 require TYPE2 format
+  // Original ESP32 (ESP32-WROOM) uses TYPE1 format
+  #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6) || \
+      defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3) || \
+      defined(ARDUINO_ESP32C3_DEV)
     adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
   #else
     adc_digi_output_format_t adc_format = ADC_DIGI_OUTPUT_FORMAT_TYPE1;
@@ -1305,9 +1283,10 @@ uint8_t TimingCore::readRawRSSI_DMA() {
   uint32_t ret_num = 0;
   
   // Read samples from DMA buffer (non-blocking with short timeout)
+  // With 1kHz sampling rate, buffer fills at ~256ms, so 1ms timeout is sufficient
   esp_err_t ret = adc_continuous_read(adc_handle, dma_result_buffer, 
                                       DMA_BUFFER_SIZE * SOC_ADC_DIGI_RESULT_BYTES, 
-                                      &ret_num, 10);  // 10ms timeout
+                                      &ret_num, 1);  // 1ms timeout (sufficient for 1kHz sampling)
   
   if (ret == ESP_OK && ret_num > 0) {
     // Average all samples in buffer for excellent filtering
@@ -1370,6 +1349,56 @@ bool TimingCore::getRSSIHistorySample(uint32_t index, RSSISample& sample) const 
 
   sample = rssi_history_buffer[buffer_index];
   return true;
+}
+
+bool TimingCore::allocateRSSIHistory() {
+#if RSSI_HISTORY_ENABLED
+  // Don't re-allocate if already allocated
+  if (rssi_history_buffer) {
+    return true;
+  }
+  
+  // Don't try again if we've already attempted
+  if (rssi_history_allocation_attempted) {
+    return false;
+  }
+  
+  rssi_history_allocation_attempted = true;
+  
+  size_t required_bytes = RSSI_HISTORY_SIZE * sizeof(RSSISample);
+  
+  // Try multiple allocation strategies to handle heap fragmentation
+  // Strategy 1: Try regular malloc first (least restrictive, allows any memory)
+  rssi_history_buffer = (RSSISample*)malloc(required_bytes);
+  
+  if (!rssi_history_buffer) {
+    // Strategy 2: Try MALLOC_CAP_DEFAULT (allows both internal and external memory)
+    rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_DEFAULT);
+  }
+  
+  if (!rssi_history_buffer) {
+    // Strategy 3: Try MALLOC_CAP_INTERNAL (internal DRAM only, cache-safe for WROOM)
+    rssi_history_buffer = (RSSISample*)heap_caps_malloc(required_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
+  
+  if (rssi_history_buffer) {
+    memset(rssi_history_buffer, 0, required_bytes);
+    rssi_history_write_index = 0;
+    rssi_history_count = 0;
+    last_rssi_sample_time = 0;
+    if (debug_enabled) {
+      Serial.printf("RSSI history buffer allocated early: %d KB\n", required_bytes / 1024);
+    }
+    return true;
+  } else {
+    if (debug_enabled) {
+      Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - will retry during race\n", required_bytes / 1024);
+    }
+    return false;
+  }
+#else
+  return false;
+#endif
 }
 
 void TimingCore::clearRSSIHistory() {

@@ -8,6 +8,7 @@ class RaceTimer {
         this.currentStatus = {};
         this.audioEnabled = true;
         this.speechSynthesis = window.speechSynthesis;
+        this.lastLapCount = null;  // Track last known lap count to avoid unnecessary /api/laps calls
 
         // RSSI Graph variables
         this.rssiHistory = [];
@@ -167,15 +168,21 @@ class RaceTimer {
     
     async updateData() {
         try {
-            // Get status
+            // Get status (always fetch - it's small and changes frequently)
             const statusResponse = await fetch('/api/status');
             const status = await statusResponse.json();
             this.updateStatus(status);
             
-            // Get laps
-            const lapsResponse = await fetch('/api/laps');
-            const laps = await lapsResponse.json();
-            this.updateLaps(laps);
+            // Only fetch laps if lap count changed (optimization: laps array is large)
+            const currentLapCount = status.lap_count || 0;
+            if (this.lastLapCount === null || this.lastLapCount !== currentLapCount) {
+                // Lap count changed or first load - fetch full lap data
+                const lapsResponse = await fetch('/api/laps');
+                const laps = await lapsResponse.json();
+                this.updateLaps(laps);
+                this.lastLapCount = currentLapCount;
+            }
+            // else: lap count unchanged, skip expensive /api/laps call
             
         } catch (error) {
             console.error('Error updating data:', error);
@@ -391,6 +398,9 @@ class RaceTimer {
 
         // Update laps array
         this.laps = laps;
+        
+        // Update lastLapCount to match current count
+        this.lastLapCount = laps.length;
 
         // Update race data laps
         this.raceData.laps = laps;
@@ -398,8 +408,18 @@ class RaceTimer {
         this.updateLapDisplay();
     }
     
+    clearLaps() {
+        // Clear laps and reset lap count tracking
+        this.laps = [];
+        this.lastLapCount = 0;
+        this.raceData.laps = [];
+        this.updateLapDisplay();
+    }
+    
     addLap(lapData) {
         this.laps.push(lapData);
+        // Update lastLapCount when lap is added via WebSocket
+        this.lastLapCount = this.laps.length;
         this.updateLapDisplay();
         this.updateLastLap(lapData);
         
@@ -1118,8 +1138,7 @@ function resetRace() {
         .then(data => {
             console.log('Race reset:', data);
             if (raceTimer) {
-                raceTimer.laps = [];
-                raceTimer.updateLapDisplay();
+                raceTimer.clearLaps();  // Use method to properly reset lastLapCount
             }
         })
         .catch(error => {

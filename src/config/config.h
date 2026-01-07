@@ -14,7 +14,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
-    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C6
+    #define RSSI_HISTORY_SIZE   20000  // 20,000 samples = 6.6 minutes @ 50Hz (100 KB) - full size for C6
 #elif defined(BOARD_NUCLEARCOUNTER)
     // NuclearCounter (ESP32-C3 based board)
     #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
@@ -26,7 +26,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      1     // GPIO1 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
-    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
+    #define RSSI_HISTORY_SIZE   20000  // 20,000 samples = 6.6 minutes @ 50Hz (100 KB) - full size for C3
 #elif defined(BOARD_ESP32_C3_ZERO)
     // ESP32-C3 Zero - Must come BEFORE generic ESP32-C3 check (more specific)
     #define RSSI_INPUT_PIN      3     // GPIO3 (ADC1_CH3) - RSSI input from RX5808
@@ -40,7 +40,7 @@
     #define STATUS_LED_PIN      10     // GPIO10 - WS2812 RGB LED
     #define STATUS_LED_WS2812   1     // Enable WS2812 support (uses built-in neopixelWrite() function)
     #define STATUS_LED_INVERTED 0     // Not used for WS2812 (color-based control)
-    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
+    #define RSSI_HISTORY_SIZE   20000  // 20,000 samples = 6.6 minutes @ 50Hz (100 KB) - full size for C3
 #elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
     // ESP32-C3 SuperMini (Hertz-hunter compatible)
     // Generic ESP32-C3 - Must come AFTER specific board checks
@@ -53,7 +53,7 @@
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
-    #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
+    #define RSSI_HISTORY_SIZE   20000  // 20,000 samples = 6.6 minutes @ 50Hz (100 KB) - full size for C3
 #elif defined(BOARD_ESP32_S3_TOUCH)
     // Waveshare ESP32-S3-Touch-LCD-2 with 2" ST7789T3 LCD (240x320) and CST816D touch
     // Pin configuration verified from official Waveshare demo code
@@ -181,11 +181,11 @@
 
 // DMA ADC configuration
 // Note: DMA ADC uses ADC1 continuously, which conflicts with analogRead() on ADC1 pins
-#define DMA_SAMPLE_RATE     20000 // DMA ADC sample rate in Hz (20000 = 20kHz minimum for ESP32)
-                                  // ESP32 valid range: 20kHz - 2MHz
-                                  // Lower rate = less CPU overhead
-                                  // Higher rate = better filtering, more responsive
-                                  // Recommended: 20000-100000 Hz for lap timing
+#define DMA_SAMPLE_RATE     1000  // DMA ADC sample rate in Hz (1000 = 1kHz, matches timing loop)
+                                  // ESP32 valid range: 20kHz - 2MHz (ESP32), 1kHz+ (ESP32-C3/S2/S3/C6)
+                                  // Lower rate = less CPU overhead, 1kHz is sufficient for RSSI sampling
+                                  // Higher rate = better filtering but unnecessary overhead
+                                  // Recommended: 1000 Hz for lap timing (matches 1kHz timing loop)
 #define DMA_BUFFER_SIZE     256   // DMA buffer size in samples (larger = more averaging)
 
 
