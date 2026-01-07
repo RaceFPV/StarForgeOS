@@ -24,7 +24,7 @@
     #define MODE_SWITCH_PIN     20    // GPIO20 - Mode selection switch
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
-    #define STATUS_LED_PIN      8     // GPIO1 - Built-in status LED (if present, optional)
+    #define STATUS_LED_PIN      1     // GPIO1 - Built-in status LED (if present, optional)
     #define STATUS_LED_INVERTED 0     // LED active state (0 = HIGH is ON, 1 = LOW is ON)
     #define RSSI_HISTORY_SIZE   30000  // 30,000 samples = 10 minutes @ 50Hz (150 KB) - full size for C3
 #elif defined(BOARD_ESP32_C3_ZERO)
