@@ -7,6 +7,10 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <cstdio>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // Buffer sizes for JSON responses (with safety margins)
 #define JSON_STATUS_BUFFER_SIZE 512      // Status response (most frequent)
@@ -15,6 +19,49 @@
 #define JSON_CHANNELS_BUFFER_SIZE 2048    // Channels response (static data)
 #define JSON_SPIFFS_BUFFER_SIZE 2048     // SPIFFS info response
 #define JSON_CONFIG_BUFFER_SIZE 2048      // Config response
+
+// Helper structure for delayed timing resume (non-blocking)
+struct TimingResumeData {
+    TimingCore* timingCore;
+    bool wasActive;
+    uint32_t delayMs;
+};
+
+// FreeRTOS task to resume timing after delay (non-blocking, prevents watchdog timeout)
+void resumeTimingAfterDelay(void* parameter) {
+    TimingResumeData* data = static_cast<TimingResumeData*>(parameter);
+    if (data && data->timingCore && data->wasActive) {
+        // Wait for the calculated delay
+        vTaskDelay(pdMS_TO_TICKS(data->delayMs));
+        // Resume timing
+        data->timingCore->resumeFromPause(data->wasActive);
+    }
+    // Free the allocated structure
+    delete data;
+    // Delete this one-shot task
+    vTaskDelete(NULL);
+}
+
+// Helper function to schedule delayed timing resume (non-blocking)
+static void scheduleTimingResume(TimingCore* timingCore, bool wasActive, uint32_t delayMs) {
+    if (!timingCore || !wasActive) return;  // Nothing to resume
+    
+    TimingResumeData* data = new TimingResumeData;
+    data->timingCore = timingCore;
+    data->wasActive = wasActive;
+    data->delayMs = delayMs;
+    
+    // Create a one-shot task that will resume timing after delay
+    // Low priority (1) so it doesn't interfere with TCP/IP stack
+    xTaskCreate(
+        resumeTimingAfterDelay,
+        "TimingResume",
+        2048,  // Stack size
+        data,
+        1,      // Low priority (below timing core)
+        NULL    // Don't need handle
+    );
+}
 
 // Helper function to find band/channel from frequency (same lookup as timing_core)
 // This ensures band/channel are updated when frequency is set, so they persist correctly
@@ -223,9 +270,9 @@ void WebServerManager::handleRoot(AsyncWebServerRequest* request) {
     // Don't open file twice - let ESPAsyncWebServer handle it internally to avoid conflicts
     if (SPIFFS.exists("/index.html")) {
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/index.html", "text/html");
-        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-        response->addHeader("Pragma", "no-cache");
-        response->addHeader("Expires", "0");
+        // HTML should be revalidated (not cached long) since it contains versioned script/style links
+        response->addHeader("Cache-Control", "public, max-age=300, must-revalidate");  // 5 min cache, then revalidate
+        response->addHeader("ETag", "\"index-v5\"");  // Version tag for cache validation
         request->send(response);
     } else {
         request->send(404, "text/plain", "index.html not found");
@@ -671,9 +718,6 @@ void WebServerManager::handleStyleCSS(AsyncWebServerRequest* request) {
     // ESPAsyncWebServer handles SPIFFS file serving efficiently with automatic chunking
     // Temporarily pause timing core to give file transfer full CPU (prevents partial transfer errors)
     bool timingWasActive = false;
-    if (_timingCore) {
-        timingWasActive = _timingCore->pauseTemporarily(3000);
-    }
     
     if (SPIFFS.exists("/style.css")) {
         // Get file size to calculate pause duration (conservative estimate)
@@ -681,22 +725,26 @@ void WebServerManager::handleStyleCSS(AsyncWebServerRequest* request) {
         size_t fileSize = testFile ? testFile.size() : 20000;  // Default to 20KB if can't read
         if (testFile) testFile.close();
         
-        // Calculate pause time: file size / estimated WiFi speed (conservative: ~50KB/s)
-        // Add 50% margin for safety: (fileSize / 50000) * 1500ms, minimum 2 seconds
-        uint32_t pauseMs = ((fileSize * 1500) / 50000) + 2000;  // At least 2 seconds, more for larger files
+        // Calculate pause time: file size / estimated WiFi speed (conservative: ~30KB/s for ESP32-C6)
+        // Use 4x margin for safety: (fileSize / 30000) * 4000ms, minimum 4 seconds
+        // ESPAsyncWebServer sends asynchronously, so we need generous pause time
+        uint32_t pauseMs = ((fileSize * 4000) / 30000) + 4000;  // At least 4 seconds, more for larger files
+        if (pauseMs > 15000) pauseMs = 15000;  // Cap at 15 seconds max
+        
+        // Pause timing core BEFORE sending file
+        if (_timingCore) {
+            timingWasActive = _timingCore->pauseTemporarily(pauseMs);
+        }
         
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/style.css", "text/css");
-        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-        response->addHeader("Pragma", "no-cache");
-        response->addHeader("Expires", "0");
+        // Enable browser caching with 1 year expiration (versioned via ?v= in HTML)
+        response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+        response->addHeader("ETag", "\"style-v5\"");  // Version tag for cache validation
         request->send(response);
         
-        // ESPAsyncWebServer serves files asynchronously, so we need to keep timing paused
-        // for the duration of the transfer. Use calculated pause time with margin
-        uint32_t pauseStart = millis();
-        while (millis() - pauseStart < pauseMs) {
-            delay(100);  // Yield to TCP/IP task every 100ms
-        }
+        // Schedule non-blocking resume after delay (prevents watchdog timeout)
+        // ESPAsyncWebServer serves files asynchronously, so we schedule resume in background
+        scheduleTimingResume(_timingCore, timingWasActive, pauseMs);
     } else {
         // Fallback error CSS
         request->send(200, "text/css",
@@ -705,20 +753,12 @@ void WebServerManager::handleStyleCSS(AsyncWebServerRequest* request) {
             ".error{background:#2a0f0f;border:2px solid #ff3838;border-radius:8px;padding:30px;max-width:600px;margin:0 auto;}"
         );
     }
-    
-    // Resume timing core after file transfer completes
-    if (_timingCore) {
-        _timingCore->resumeFromPause(timingWasActive);
-    }
 }
 
 void WebServerManager::handleAppJS(AsyncWebServerRequest* request) {
     // ESPAsyncWebServer handles SPIFFS file serving efficiently with automatic chunking
     // Temporarily pause timing core to give file transfer full CPU (prevents partial transfer errors)
     bool timingWasActive = false;
-    if (_timingCore) {
-        timingWasActive = _timingCore->pauseTemporarily(5000);
-    }
     
     if (SPIFFS.exists("/app.js")) {
         // Get file size to calculate pause duration (conservative estimate)
@@ -726,22 +766,26 @@ void WebServerManager::handleAppJS(AsyncWebServerRequest* request) {
         size_t fileSize = testFile ? testFile.size() : 45000;  // Default to 45KB if can't read
         if (testFile) testFile.close();
         
-        // Calculate pause time: file size / estimated WiFi speed (conservative: ~50KB/s)
-        // Add 50% margin for safety: (fileSize / 50000) * 1500ms, minimum 3 seconds
-        uint32_t pauseMs = ((fileSize * 1500) / 50000) + 3000;  // At least 3 seconds, more for larger files
+        // Calculate pause time: file size / estimated WiFi speed (conservative: ~30KB/s for ESP32-C6)
+        // Use 4x margin for safety: (fileSize / 30000) * 4000ms, minimum 6 seconds
+        // ESPAsyncWebServer sends asynchronously, so we need generous pause time
+        uint32_t pauseMs = ((fileSize * 4000) / 30000) + 6000;  // At least 6 seconds, more for larger files
+        if (pauseMs > 20000) pauseMs = 20000;  // Cap at 20 seconds max
+        
+        // Pause timing core BEFORE sending file
+        if (_timingCore) {
+            timingWasActive = _timingCore->pauseTemporarily(pauseMs);
+        }
         
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/app.js", "application/javascript");
-        response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-        response->addHeader("Pragma", "no-cache");
-        response->addHeader("Expires", "0");
+        // Enable browser caching with 1 year expiration (versioned via ?v=5 in HTML)
+        response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+        response->addHeader("ETag", "\"app-v5\"");  // Version tag for cache validation
         request->send(response);
         
-        // ESPAsyncWebServer serves files asynchronously, so we need to keep timing paused
-        // for the duration of the transfer. Use calculated pause time with margin
-        uint32_t pauseStart = millis();
-        while (millis() - pauseStart < pauseMs) {
-            delay(100);  // Yield to TCP/IP task every 100ms
-        }
+        // Schedule non-blocking resume after delay (prevents watchdog timeout)
+        // ESPAsyncWebServer serves files asynchronously, so we schedule resume in background
+        scheduleTimingResume(_timingCore, timingWasActive, pauseMs);
     } else {
         // Fallback error JavaScript
         request->send(200, "application/javascript",
@@ -750,11 +794,6 @@ void WebServerManager::handleAppJS(AsyncWebServerRequest* request) {
             "<p>Web interface files not found on device.</p>"
             "<p>Please run: <code>pio run -t uploadfs</code></p></div>';"
         );
-    }
-    
-    // Resume timing core after file transfer completes
-    if (_timingCore) {
-        _timingCore->resumeFromPause(timingWasActive);
     }
 }
 
