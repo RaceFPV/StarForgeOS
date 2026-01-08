@@ -83,6 +83,8 @@
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
     // No status LED defined - board may have addressable LED (not yet configured)
+    #define RSSI_HISTORY_ENABLED 0     // Disable RSSI history for memory-constrained ESP32
+    #define RSSI_HISTORY_SIZE   0      // No RSSI history buffer (disabled)
 #elif defined(BOARD_T_ENERGY)
     // LilyGo T-Energy (ESP32-S3 with built-in battery)
     // Built-in 18650 battery slot with voltage sensing circuit
@@ -314,7 +316,7 @@
 #endif
 
 // Data storage
-#define MAX_LAPS_STORED     100   // Maximum laps to store in memory
+#define MAX_LAPS_STORED     50    // Maximum laps to store in memory (reduced for memory-constrained ESP32)
 #define MAX_PILOTS          2     // Maximum pilots in standalone mode
 
 // RSSI history buffering for race data export

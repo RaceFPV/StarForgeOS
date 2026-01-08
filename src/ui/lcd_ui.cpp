@@ -23,7 +23,7 @@ lv_indev_drv_t LcdUI::indev_drv;
     // ESP32-S3: Dynamically allocated buffer (initialized in begin())
     lv_color_t* LcdUI::buf = nullptr;
 #else
-    // Other boards: Static buffer
+    // Other boards: Static buffer (60 lines for smooth scrolling)
     lv_color_t LcdUI::buf[240 * 60];
 #endif
 
@@ -140,7 +140,7 @@ bool LcdUI::begin() {
     // Initialize LVGL display buffer (full screen for smooth performance)
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, bufSize);
 #else
-    // Other boards: Use smaller buffer (60 lines)
+    // Other boards: Use buffer (60 lines for smooth scrolling)
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, 240 * 60);
 #endif
     

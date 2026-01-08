@@ -13,6 +13,7 @@ CONFIG_LOG_MAXIMUM_LEVEL=0
 # Disable PSRAM support (board doesn't have PSRAM)
 CONFIG_ESP32_SPIRAM_SUPPORT=n
 CONFIG_SPIRAM_SUPPORT=n
+CONFIG_SPIRAM_BOOT_INIT=n
 
 # Disable core dump completely
 CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y
@@ -24,4 +25,43 @@ CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT=y
 # Flash size configuration (default 4MB - most common)
 # Override in board-specific sdkconfig or use esp32dev-2mb environment for 2MB boards
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Memory optimization for ESP32 (reduce DRAM usage by ~30%)
+# WiFi buffer optimization - reduced for memory-constrained boards
+CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM=2
+CONFIG_ESP32_WIFI_DYNAMIC_RX_BUFFER_NUM=5
+CONFIG_ESP32_WIFI_TX_BUFFER_TYPE=1
+CONFIG_ESP32_WIFI_DYNAMIC_TX_BUFFER_NUM=5
+CONFIG_ESP32_WIFI_TX_BUFFER=5
+# Reduce AMPDU window sizes (default is 6, reducing to 4 saves memory)
+CONFIG_ESP32_WIFI_AMPDU_TX_ENABLED=y
+CONFIG_ESP32_WIFI_TX_BA_WIN=4
+CONFIG_ESP32_WIFI_AMPDU_RX_ENABLED=y
+CONFIG_ESP32_WIFI_RX_BA_WIN=4
+# Reduce management buffers (if supported on ESP32)
+# CONFIG_ESP32_WIFI_MGMT_SBUF_NUM=16  # Reduced from default 32 (ESP32 may not support this)
+
+# LWIP (TCP/IP) optimization - further reduced
+CONFIG_LWIP_MAX_SOCKETS=3
+CONFIG_LWIP_SO_REUSE=y
+CONFIG_LWIP_SO_REUSE_RXTOALL=y
+# Reduce TCP buffer sizes (override common settings in platformio.ini)
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=6144
+CONFIG_LWIP_TCP_WND_DEFAULT=6144
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=6
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=6
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=8
+# Reduce memory pool sizes
+CONFIG_LWIP_MEM_ALIGNMENT=4
+CONFIG_LWIP_PBUF_POOL_SIZE=8
+CONFIG_LWIP_PBUF_POOL_BUFSIZE=512
+
+# Reduce BLE memory if not needed (uncomment if BLE is not used)
+# CONFIG_BT_ENABLED=n
+
+# Heap optimization
+CONFIG_HEAP_POISONING_COMPREHENSIVE=n
+CONFIG_HEAP_POISONING_LIGHT=n
+CONFIG_HEAP_POISONING_DISABLED=y
+CONFIG_HEAP_TRACING_OFF=y
 

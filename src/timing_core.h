@@ -30,7 +30,7 @@ struct RSSISample {
   uint8_t rssi;             // Filtered RSSI value
 };
 
-#define EXTREMUM_BUFFER_SIZE 256  // Circular buffer for extremums (must be power of 2)
+#define EXTREMUM_BUFFER_SIZE 128  // Circular buffer for extremums (must be power of 2) - reduced for memory-constrained ESP32
 
 // Structure to hold current timing state
 struct TimingState {

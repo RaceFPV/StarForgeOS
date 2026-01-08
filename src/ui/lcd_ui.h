@@ -116,7 +116,7 @@ private:
     // ESP32-S3: Use dynamically allocated buffer in PSRAM (full screen for smooth scrolling)
     static lv_color_t* buf;
 #else
-    // Other boards: Use static buffer (60 lines)
+    // Other boards: Use static buffer (60 lines for smooth scrolling)
     static lv_color_t buf[240 * 60];
 #endif
     
