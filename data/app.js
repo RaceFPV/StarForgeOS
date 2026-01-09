@@ -694,9 +694,8 @@ class RaceTimer {
                 
                 if (currentTime < bestTime) {
                     speechText += ', new best time!';
-                } else if (currentTime > bestTime * 1.1) {
-                    speechText += ', slower lap';
                 }
+                // Removed "slower lap" announcement - only announce new best times
             }
         }
         
