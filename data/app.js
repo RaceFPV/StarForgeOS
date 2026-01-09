@@ -392,7 +392,8 @@ class RaceTimer {
             // New lap detected - announce it
             const newLap = laps[laps.length - 1];
             if (this.audioEnabled && newLap.lap_time_ms > 0) {
-                this.announceLapTime(newLap);
+                // Pass the correct lap number (currentLapCount) since this.laps hasn't been updated yet
+                this.announceLapTime(newLap, currentLapCount);
             }
         }
 
@@ -675,10 +676,15 @@ class RaceTimer {
         return timeSpeech;
     }
     
-    announceLapTime(lapData) {
+    announceLapTime(lapData, lapNumber = null) {
         if (!this.speechSynthesis) return;
         
-        const lapNumber = this.laps.length;
+        // Use provided lap number, or calculate from current laps array
+        // Lap numbers start from 1 (first lap is Lap 1, not Lap 0)
+        if (lapNumber === null) {
+            lapNumber = this.laps.length;
+        }
+        
         const lapTimeSpeech = this.formatTimeForSpeech(lapData.lap_time_ms);
         
         // Create speech text with natural language time
