@@ -4,6 +4,9 @@
 
 #include "../config/config_globals.h"
 #include "../hardware/CST820.h"
+#if ENABLE_AUDIO
+#include "../hardware/audio_output.h"
+#endif
 #include <FS.h>
 #include <SPIFFS.h>
 
@@ -40,6 +43,11 @@ LcdUI::LcdUI() :
                  start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr), mode_btn(nullptr),
                  band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
                  brightness_slider(nullptr), brightness_label(nullptr),
+                 lap_times_box(nullptr), lap_times_labels{nullptr, nullptr, nullptr, nullptr, nullptr},
+                 countdown_overlay(nullptr), countdown_label(nullptr),
+                 _countdownActive(false), _countdownValue(5), _countdownStartTime(0), _lastBeepValue(-1),
+                 finish_overlay(nullptr), finish_label(nullptr),
+                 _finishActive(false), _finishStartTime(0),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
                  _settingsChangedCallback(nullptr),
                  _lastGraphUpdate(0), _lastScrollTime(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
@@ -121,21 +129,26 @@ bool LcdUI::begin() {
     lv_init();
     
 #if defined(BOARD_ESP32_S3_TOUCH)
-    // ESP32-S3: Allocate full screen buffer in PSRAM for smooth scrolling (240x320 = 76,800 pixels)
+    // ESP32-S3: Allocate full screen buffer (240x320 = 76,800 pixels = 153,600 bytes)
+    // Match Waveshare demo allocation strategy
     uint32_t bufSize = 240 * 320;
-    buf = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint32_t bufBytes = bufSize * sizeof(lv_color_t);  // 153,600 bytes
+    
+    // Try PSRAM first (preferred for ESP32-S3 with PSRAM)
+    buf = (lv_color_t*)heap_caps_malloc(bufBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!buf) {
-        // Fallback to internal RAM if PSRAM allocation fails
-        Serial.println("LCD: PSRAM allocation failed, trying internal RAM...");
-        buf = (lv_color_t*)heap_caps_malloc(bufSize * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        // Fallback to internal RAM
+        buf = (lv_color_t*)heap_caps_malloc(bufBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
     if (!buf) {
-        Serial.println("ERROR: Failed to allocate LVGL display buffer!");
+        // Last resort: try default heap
+        buf = (lv_color_t*)heap_caps_malloc(bufBytes, MALLOC_CAP_8BIT);
+    }
+    
+    if (!buf) {
+        Serial.printf("ERROR: Failed to allocate LVGL display buffer (%d KB)!\n", bufBytes / 1024);
         return false;
     }
-    Serial.printf("LCD: Allocated %d KB buffer in %s\n", 
-                  (bufSize * sizeof(lv_color_t)) / 1024,
-                  heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > (bufSize * sizeof(lv_color_t)) ? "PSRAM" : "Internal RAM");
     
     // Initialize LVGL display buffer (full screen for smooth performance)
     lv_disp_draw_buf_init(&draw_buf, buf, NULL, bufSize);
@@ -174,6 +187,12 @@ bool LcdUI::begin() {
     Serial.println("LCD: Creating UI...");
     createUI();
     
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Force initial screen refresh for ESP32-S3-Touch
+    // This ensures LVGL renders the UI immediately
+    lv_obj_invalidate(lv_scr_act());
+#endif
+    
     Serial.println("\n====================================");
     Serial.println("LCD UI: Setup complete!");
     Serial.println("====================================\n");
@@ -195,7 +214,7 @@ void LcdUI::createUI() {
     lv_obj_set_scroll_dir(scr, LV_DIR_VER);  // Enable vertical scrolling
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_size(scr, 240, 320);  // Physical screen size
-    lv_obj_set_content_height(scr, 870);  // Increased for taller brightness panel
+    lv_obj_set_content_height(scr, 975);  // Increased for lap times display
     
     // Disable elastic/bounce effect at top and bottom of scroll
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_ELASTIC);
@@ -513,7 +532,7 @@ void LcdUI::createUI() {
     lv_obj_t *threshold_inc = lv_btn_create(threshold_box);
     lv_obj_set_size(threshold_inc, 40, 35);
     lv_obj_set_pos(threshold_inc, 160, 28);
-    lv_obj_set_style_bg_color(threshold_inc, lv_color_hex(0x444444), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(threshold_inc, lv_color_hex(0x444444), (lv_style_selector_t)(LV_PART_MAIN | LV_STATE_DEFAULT));
     lv_obj_add_event_cb(threshold_inc, threshold_inc_event, LV_EVENT_CLICKED, this);
     lv_obj_t *threshold_inc_lbl = lv_label_create(threshold_inc);
     lv_label_set_text(threshold_inc_lbl, "+");
@@ -553,6 +572,34 @@ void LcdUI::createUI() {
     lv_obj_add_flag(brightness_slider, LV_OBJ_FLAG_SCROLL_ON_FOCUS);  // Disable horizontal scrolling
     lv_obj_clear_flag(brightness_slider, LV_OBJ_FLAG_SCROLLABLE);     // Not scrollable
     lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_VALUE_CHANGED, this);
+    
+    // Lap times display (at bottom of screen)
+    lap_times_box = lv_obj_create(scr);
+    lv_obj_set_size(lap_times_box, 220, 95);  // Height for 5 lap time entries
+    lv_obj_set_pos(lap_times_box, 10, 860);  // Below brightness box (756 + 90 + 14 gap)
+    lv_obj_set_style_bg_color(lap_times_box, lv_color_hex(0x1a1a1a), 0);
+    lv_obj_set_style_border_width(lap_times_box, 1, 0);
+    lv_obj_set_style_border_color(lap_times_box, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_pad_all(lap_times_box, 5, 0);
+    lv_obj_clear_flag(lap_times_box, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t* lap_times_title = lv_label_create(lap_times_box);
+    lv_label_set_text(lap_times_title, "Lap Times");
+    lv_obj_set_style_text_color(lap_times_title, lv_color_hex(0x888888), 0);
+    lv_obj_set_style_text_font(lap_times_title, &lv_font_montserrat_12, 0);
+    lv_obj_set_pos(lap_times_title, 5, 2);
+    
+    // Create 5 labels for lap times (each 16px high with 1px spacing)
+    for (int i = 0; i < 5; i++) {
+        lap_times_labels[i] = lv_label_create(lap_times_box);
+        lv_label_set_text(lap_times_labels[i], "");
+        lv_obj_set_style_text_font(lap_times_labels[i], &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(lap_times_labels[i], lv_color_hex(0xcccccc), 0);
+        lv_obj_set_style_text_align(lap_times_labels[i], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_set_style_bg_opa(lap_times_labels[i], LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(lap_times_labels[i], 0, 0);
+        lv_obj_set_pos(lap_times_labels[i], 5, 18 + (i * 14));  // Start at 18px, 14px spacing
+    }
     
     Serial.println("LCD: UI created successfully");
 }
@@ -597,6 +644,44 @@ void LcdUI::updateRaceStatus(bool racing) {
         } else {
             lv_label_set_text(status_label, "READY");
             lv_obj_set_style_text_color(status_label, lv_color_hex(0x00ff00), 0);  // Green when ready
+        }
+    }
+}
+
+void LcdUI::updateLapTimes(const std::vector<LapData>& laps) {
+    if (!lap_times_box || !lap_times_labels[0]) return;
+    
+    // Show last 5 lap times (or fewer if less than 5 laps)
+    size_t numLapsToShow = laps.size() > 5 ? 5 : laps.size();
+    
+    for (int i = 0; i < 5; i++) {
+        if (lap_times_labels[i]) {
+            if (i < numLapsToShow) {
+                // Calculate which lap to show (most recent first)
+                size_t lapIndex = laps.size() - numLapsToShow + i;
+                const LapData& lap = laps[lapIndex];
+                
+                // Format lap time: MM:SS.mmm or SS.mmm if < 1 minute
+                uint32_t lapTimeMs = lap.lap_time_ms;
+                uint32_t minutes = lapTimeMs / 60000;
+                uint32_t seconds = (lapTimeMs % 60000) / 1000;
+                uint32_t milliseconds = lapTimeMs % 1000;
+                
+                char buf[24];
+                if (minutes > 0) {
+                    snprintf(buf, sizeof(buf), "Lap %zu: %lu:%02lu.%03lu", 
+                            lapIndex + 1, minutes, seconds, milliseconds);
+                } else {
+                    snprintf(buf, sizeof(buf), "Lap %zu: %lu.%03lu s", 
+                            lapIndex + 1, seconds, milliseconds);
+                }
+                
+                lv_label_set_text(lap_times_labels[i], buf);
+                lv_obj_set_style_text_color(lap_times_labels[i], lv_color_hex(0xcccccc), 0);
+            } else {
+                // Clear unused labels
+                lv_label_set_text(lap_times_labels[i], "");
+            }
         }
     }
 }
@@ -705,16 +790,31 @@ void LcdUI::updateBattery(float voltage, uint8_t percentage, bool isCharging) {
 // Button event handlers (LVGL callbacks)
 void LcdUI::start_btn_event(lv_event_t* e) {
     LcdUI* ui = (LcdUI*)e->user_data;
-    if (ui && ui->_startCallback) {
-        Serial.println("LCD: START button pressed");
-        ui->_startCallback();
+    if (ui && ui->_startCallback && !ui->_countdownActive) {
+        Serial.println("LCD: START button pressed - beginning countdown");
+        // Disable start button during countdown
+        if (ui->start_btn) {
+            lv_obj_add_state(ui->start_btn, LV_STATE_DISABLED);
+        }
+        ui->startCountdown();
     }
 }
 
 void LcdUI::stop_btn_event(lv_event_t* e) {
     LcdUI* ui = (LcdUI*)e->user_data;
+    // Cancel countdown if active
+    if (ui && ui->_countdownActive) {
+        Serial.println("LCD: STOP button pressed - cancelling countdown");
+        ui->stopCountdown();
+        if (ui->start_btn) {
+            lv_obj_clear_state(ui->start_btn, LV_STATE_DISABLED);
+        }
+        return;
+    }
+    // Otherwise, stop the race and show finish flash
     if (ui && ui->_stopCallback) {
         Serial.println("LCD: STOP button pressed");
+        ui->showFinish();  // Show "Finish" flash
         ui->_stopCallback();
     }
 }
@@ -762,6 +862,10 @@ void LcdUI::band_prev_event(lv_event_t* e) {
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Band changed to %d\n", band);
         
+        // Update UI labels
+        ui->updateBandChannel(band, channel);
+        ui->updateFrequency(ui->_timingCore->getCurrentFrequency());
+        
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
             ui->_settingsChangedCallback();
@@ -778,6 +882,10 @@ void LcdUI::band_next_event(lv_event_t* e) {
         else band = 0;  // Wrap to A
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Band changed to %d\n", band);
+        
+        // Update UI labels
+        ui->updateBandChannel(band, channel);
+        ui->updateFrequency(ui->_timingCore->getCurrentFrequency());
         
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
@@ -796,6 +904,10 @@ void LcdUI::channel_prev_event(lv_event_t* e) {
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Channel changed to %d\n", channel + 1);
         
+        // Update UI labels
+        ui->updateBandChannel(band, channel);
+        ui->updateFrequency(ui->_timingCore->getCurrentFrequency());
+        
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
             ui->_settingsChangedCallback();
@@ -813,6 +925,10 @@ void LcdUI::channel_next_event(lv_event_t* e) {
         ui->_timingCore->setRX5808Settings(band, channel);
         Serial.printf("LCD: Channel changed to %d\n", channel + 1);
         
+        // Update UI labels
+        ui->updateBandChannel(band, channel);
+        ui->updateFrequency(ui->_timingCore->getCurrentFrequency());
+        
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
             ui->_settingsChangedCallback();
@@ -827,6 +943,9 @@ void LcdUI::threshold_dec_event(lv_event_t* e) {
         if (threshold > 10) threshold -= 5;  // Decrement by 5
         ui->_timingCore->setThreshold(threshold);
         Serial.printf("LCD: Threshold decreased to %d\n", threshold);
+        
+        // Update UI label
+        ui->updateThreshold(threshold);
         
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
@@ -843,6 +962,9 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
         ui->_timingCore->setThreshold(threshold);
         Serial.printf("LCD: Threshold increased to %d\n", threshold);
         
+        // Update UI label
+        ui->updateThreshold(threshold);
+        
         // Notify standalone mode to save settings
         if (ui->_settingsChangedCallback) {
             ui->_settingsChangedCallback();
@@ -853,22 +975,31 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
 
 // LVGL display flush callback (works with both TFT_eSPI and Arduino_GFX)
 void LcdUI::my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
-    if (!_instance) return;
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // For ESP32-S3-Touch with direct_mode, we don't draw here - we draw the entire buffer in uiTask
+    // Just mark the flush as complete
+    lv_disp_flush_ready(disp);
+#else
+    // For non-direct mode (other boards like JC2432W328C), draw partial updates immediately
+    if (!_instance) {
+        lv_disp_flush_ready(disp);
+        return;
+    }
     
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
-#if defined(BOARD_ESP32_S3_TOUCH)
-    // Arduino_GFX version with BGR color order (ST7789 on Waveshare uses BGR)
-    if (!_instance->gfx) return;
-    _instance->gfx->draw16bitBeRGBBitmap(area->x1, area->y1, (uint16_t *)color_p, w, h);
-#else
-    // TFT_eSPI version
-    if (!_instance->tft) return;
+    // TFT_eSPI version (used by JC2432W328C and other boards)
+    if (!_instance->tft) {
+        lv_disp_flush_ready(disp);
+        return;
+    }
+    
     _instance->tft->pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
-#endif
-
+    
+    // Mark flush as complete AFTER drawing is done (required by LVGL)
     lv_disp_flush_ready(disp);
+#endif
 }
 
 // LVGL touchpad read callback
@@ -914,12 +1045,237 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
     last_data = *data;
 }
 
+// Countdown methods
+void LcdUI::startCountdown() {
+    if (_countdownActive) return;  // Already counting down
+    
+    Serial.println("LCD: Starting 5-second countdown");
+    _countdownActive = true;
+    _countdownValue = 5;
+    _lastBeepValue = -1;
+    _countdownStartTime = millis();
+    
+    // Create countdown overlay (full screen semi-transparent black)
+    lv_obj_t* scr = lv_scr_act();
+    countdown_overlay = lv_obj_create(scr);
+    lv_obj_set_size(countdown_overlay, 240, 320);
+    lv_obj_set_pos(countdown_overlay, 0, 0);
+    lv_obj_set_style_bg_color(countdown_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(countdown_overlay, LV_OPA_80, 0);  // 80% opacity
+    lv_obj_set_style_border_width(countdown_overlay, 0, 0);
+    lv_obj_set_style_pad_all(countdown_overlay, 0, 0);
+    lv_obj_clear_flag(countdown_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(countdown_overlay);  // Bring to front
+    
+    // Create countdown label (large centered text)
+    countdown_label = lv_label_create(countdown_overlay);
+    lv_label_set_text(countdown_label, "5");
+    lv_obj_set_style_text_font(countdown_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(countdown_label, lv_color_hex(0xff7b00), 0);  // Orange like web version
+    lv_obj_set_style_text_align(countdown_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_opa(countdown_label, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(countdown_label, 0, 0);
+    // Center the label on screen: (240/2 - width/2, 320/2 - height/2)
+    // Label auto-sizes to content, so position it at center
+    lv_obj_align(countdown_label, LV_ALIGN_CENTER, 0, 0);
+    
+    // Play first beep
+#if ENABLE_AUDIO
+    playCountdownBeep(800, 150);
+#endif
+}
+
+void LcdUI::updateCountdown() {
+    if (!_countdownActive) return;
+    
+    unsigned long now = millis();
+    unsigned long elapsed = now - _countdownStartTime;
+    
+    // Calculate current countdown value (5, 4, 3, 2, 1, GO!)
+    // Each number shown for 1 second, with beep at start
+    int expectedValue;
+    if (elapsed < 1000) {
+        expectedValue = 5;
+    } else if (elapsed < 2000) {
+        expectedValue = 4;
+    } else if (elapsed < 3000) {
+        expectedValue = 3;
+    } else if (elapsed < 4000) {
+        expectedValue = 2;
+    } else if (elapsed < 5000) {
+        expectedValue = 1;
+    } else if (elapsed < 5600) {
+        expectedValue = 0;  // GO!
+    } else {
+        // Countdown complete, start race
+        stopCountdown();
+        if (_startCallback) {
+            Serial.println("LCD: Countdown complete - starting race");
+            _startCallback();
+        }
+        // Re-enable start button (will be disabled again when race starts)
+        if (start_btn) {
+            lv_obj_clear_state(start_btn, LV_STATE_DISABLED);
+        }
+        return;
+    }
+    
+    // Update display if value changed
+    if (expectedValue != _countdownValue) {
+        _countdownValue = expectedValue;
+        
+        if (expectedValue == 0) {
+            // Show "GO!"
+            lv_label_set_text(countdown_label, "GO!");
+            lv_obj_set_style_text_color(countdown_label, lv_color_hex(0x00ff88), 0);  // Green
+            lv_obj_align(countdown_label, LV_ALIGN_CENTER, 0, 0);
+#if ENABLE_AUDIO
+            if (_lastBeepValue != 0) {  // Only beep once for GO!
+                playCountdownBeep(1200, 600);  // Longer, higher-pitched beep for GO!
+                _lastBeepValue = 0;
+            }
+#endif
+        } else {
+            // Show number
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%d", expectedValue);
+            lv_label_set_text(countdown_label, buf);
+            lv_obj_set_style_text_color(countdown_label, lv_color_hex(0xff7b00), 0);  // Orange
+            lv_obj_align(countdown_label, LV_ALIGN_CENTER, 0, 0);
+            
+            // Play beep for this number (only once per number)
+            if (_lastBeepValue != expectedValue) {
+#if ENABLE_AUDIO
+                playCountdownBeep(800, 150);
+                _lastBeepValue = expectedValue;
+#endif
+            }
+        }
+    }
+}
+
+void LcdUI::stopCountdown() {
+    if (!_countdownActive) return;
+    
+    _countdownActive = false;
+    
+    // Remove overlay and label
+    if (countdown_label) {
+        lv_obj_del(countdown_label);
+        countdown_label = nullptr;
+    }
+    if (countdown_overlay) {
+        lv_obj_del(countdown_overlay);
+        countdown_overlay = nullptr;
+    }
+}
+
+#if ENABLE_AUDIO
+void LcdUI::playCountdownBeep(int frequency, int durationMs) {
+    // Use simple blocking beep (similar to playLapBeep but with custom frequency/duration)
+    const int samples = (frequency * durationMs) / 1000;
+    const float period = 1000000.0 / frequency;  // Period in microseconds
+    
+    if (samples <= 0 || durationMs <= 0) return;
+    
+    pinMode(AUDIO_DAC_PIN, OUTPUT);
+    unsigned long start = micros();
+    for (int i = 0; i < samples; i++) {
+        // Generate square wave
+        int phase = (int)((micros() - start) / (period / 2)) % 2;
+        dacWrite(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255
+        delayMicroseconds(period / 2);
+    }
+    dacWrite(AUDIO_DAC_PIN, 0);  // Silence
+}
+#endif
+
+// Finish methods
+void LcdUI::showFinish() {
+    if (_finishActive) return;  // Already showing
+    
+    Serial.println("LCD: Showing Finish flash");
+    _finishActive = true;
+    _finishStartTime = millis();
+    
+    // Create finish overlay (full screen semi-transparent black)
+    lv_obj_t* scr = lv_scr_act();
+    finish_overlay = lv_obj_create(scr);
+    lv_obj_set_size(finish_overlay, 240, 320);
+    lv_obj_set_pos(finish_overlay, 0, 0);
+    lv_obj_set_style_bg_color(finish_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(finish_overlay, LV_OPA_80, 0);  // 80% opacity
+    lv_obj_set_style_border_width(finish_overlay, 0, 0);
+    lv_obj_set_style_pad_all(finish_overlay, 0, 0);
+    lv_obj_clear_flag(finish_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(finish_overlay);  // Bring to front
+    
+    // Create finish label (large centered text)
+    finish_label = lv_label_create(finish_overlay);
+    lv_label_set_text(finish_label, "FINISH");
+    lv_obj_set_style_text_font(finish_label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(finish_label, lv_color_hex(0x00ff88), 0);  // Green like GO!
+    lv_obj_set_style_text_align(finish_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_bg_opa(finish_label, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(finish_label, 0, 0);
+    // Center the label on screen
+    lv_obj_align(finish_label, LV_ALIGN_CENTER, 0, 0);
+}
+
+void LcdUI::updateFinish() {
+    if (!_finishActive) return;
+    
+    unsigned long now = millis();
+    unsigned long elapsed = now - _finishStartTime;
+    
+    // Hide finish after duration
+    if (elapsed >= FINISH_DISPLAY_DURATION) {
+        stopFinish();
+    }
+}
+
+void LcdUI::stopFinish() {
+    if (!_finishActive) return;
+    
+    _finishActive = false;
+    
+    // Remove overlay and label
+    if (finish_label) {
+        lv_obj_del(finish_label);
+        finish_label = nullptr;
+    }
+    if (finish_overlay) {
+        lv_obj_del(finish_overlay);
+        finish_overlay = nullptr;
+    }
+}
+
 // UI task (runs in separate FreeRTOS task)
 void LcdUI::uiTask(void* parameter) {
-    Serial.println("LCD: UI task started");
+    LcdUI* ui = (LcdUI*)parameter;
     
     while (true) {
         lv_timer_handler();  // LVGL task handler (must be called regularly)
+        
+        // Update countdown if active
+        if (ui && ui->_countdownActive) {
+            ui->updateCountdown();
+        }
+        
+        // Update finish flash if active
+        if (ui && ui->_finishActive) {
+            ui->updateFinish();
+        }
+        
+#if defined(BOARD_ESP32_S3_TOUCH)
+        // For ESP32-S3-Touch with direct_mode: draw entire buffer to display
+        // This matches the Waveshare demo approach - use the buffer directly
+        // In direct_mode, LVGL renders directly to our allocated buffer
+        if (ui && ui->gfx && LcdUI::buf) {
+            // Use BeRGB for swapped color format (LV_COLOR_16_SWAP = 1)
+            ui->gfx->draw16bitBeRGBBitmap(0, 0, (uint16_t *)LcdUI::buf, 240, 320);
+        }
+#endif
         
         // Update screen brightness (dim after timeout)
         if (_instance) {

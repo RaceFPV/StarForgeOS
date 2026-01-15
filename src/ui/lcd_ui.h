@@ -16,6 +16,7 @@
 #endif
 
 #include "../timing_core.h"
+#include <vector>
 
 // Forward declaration of CST820 class
 class CST820;
@@ -36,6 +37,7 @@ public:
     void updateFrequency(uint16_t freq_mhz);
     void updateThreshold(uint8_t threshold);
     void updateBattery(float voltage, uint8_t percentage, bool isCharging = false);  // For custom PCB with voltage divider
+    void updateLapTimes(const std::vector<LapData>& laps);  // Update lap times display
     
     // Link timing core for settings access
     void setTimingCore(TimingCore* core);
@@ -80,6 +82,37 @@ private:
     lv_obj_t* threshold_label;
     lv_obj_t* brightness_slider;
     lv_obj_t* brightness_label;
+    
+    // Lap times display (at bottom of screen)
+    lv_obj_t* lap_times_box;
+    lv_obj_t* lap_times_labels[5];  // Labels for last 5 lap times
+    
+    // Countdown overlay (for race start)
+    lv_obj_t* countdown_overlay;
+    lv_obj_t* countdown_label;
+    bool _countdownActive;
+    int8_t _countdownValue;  // Current countdown value (5, 4, 3, 2, 1, 0 for GO)
+    unsigned long _countdownStartTime;
+    int8_t _lastBeepValue;  // Track which number we last beeped for (to avoid repeat beeps)
+    static const unsigned long COUNTDOWN_INTERVAL = 1000;  // 1 second per number
+    
+    // Finish overlay (for race stop)
+    lv_obj_t* finish_overlay;
+    lv_obj_t* finish_label;
+    bool _finishActive;
+    unsigned long _finishStartTime;
+    static const unsigned long FINISH_DISPLAY_DURATION = 2000;  // Show "Finish" for 2 seconds
+    
+    // Countdown methods
+    void startCountdown();
+    void updateCountdown();
+    void stopCountdown();
+    void showFinish();
+    void updateFinish();
+    void stopFinish();
+#if ENABLE_AUDIO
+    void playCountdownBeep(int frequency, int durationMs);
+#endif
     
     // Callbacks for button events
     void (*_startCallback)();

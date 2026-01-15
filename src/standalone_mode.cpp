@@ -210,9 +210,10 @@ void StandaloneMode::process() {
         Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
 
 #if ENABLE_LCD_UI
-        // Update LCD lap count
+        // Update LCD lap count and lap times
         if (_lcdUI) {
             _lcdUI->updateLapCount(_laps.size());
+            _lcdUI->updateLapTimes(_laps);
         }
 
 #if ENABLE_AUDIO
@@ -319,6 +320,7 @@ void StandaloneMode::lcdStartCallback() {
         if (_lcdInstance->_lcdUI) {
             _lcdInstance->_lcdUI->updateRaceStatus(true);
             _lcdInstance->_lcdUI->updateLapCount(0);
+            _lcdInstance->_lcdUI->updateLapTimes(_lcdInstance->_laps);  // Clear lap times display
         }
 
         Serial.println("[LCD] Race started!");
@@ -343,6 +345,7 @@ void StandaloneMode::lcdClearCallback() {
 
         if (_lcdInstance->_lcdUI) {
             _lcdInstance->_lcdUI->updateLapCount(0);
+            _lcdInstance->_lcdUI->updateLapTimes(_lcdInstance->_laps);  // Clear lap times display
         }
 
         Serial.println("[LCD] Laps cleared!");
