@@ -106,21 +106,66 @@ jobs:
         echo "✅ Version set to: $VERSION"
         echo "✅ Build number set to: $BUILD_NUMBER"
     
+    - name: Clean up volumes and temp directories (macOS)
+      if: matrix.os == 'macos-latest'
+      shell: bash
+      run: |
+        echo "Cleaning up volumes and temp directories..."
+        # Unmount any residual DMG volumes
+        for vol in $(mount | grep '/Volumes/' | awk '{print $3}' || true); do
+          if [ -n "$vol" ]; then
+            echo "Unmounting volume: $vol"
+            hdiutil detach "$vol" -force 2>/dev/null || true
+          fi
+        done
+        # Clean workspace temp files
+        rm -rf "${{ github.workspace }}/flash_tool/dist"/* 2>/dev/null || true
+        echo "✅ Cleanup complete"
+    
     - name: Build Electron app (macOS)
       if: matrix.os == 'macos-latest'
       working-directory: flash_tool
       shell: bash
       run: |
-        # Build with explicit version and build number to ensure uniqueness
-        npx electron-builder --mac \
-          --config.mac.bundleVersion=${{ env.BUILD_NUMBER }} \
-          --config.extraMetadata.version=${{ env.APP_VERSION }} \
-          --publish never
+        echo "Building for ARM64 (Apple Silicon) only..."
+        
+        # Retry logic for hdiutil transient failures
+        MAX_ATTEMPTS=3
+        ATTEMPT=1
+        while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+          echo "Build attempt $ATTEMPT of $MAX_ATTEMPTS..."
+          
+          # Build with explicit version and build number to ensure uniqueness
+          # Build for ARM64 only (Apple Silicon) to avoid hdiutil conflicts
+          if npx electron-builder --mac --arm64 \
+            --config.mac.bundleVersion=${{ env.BUILD_NUMBER }} \
+            --config.extraMetadata.version=${{ env.APP_VERSION }} \
+            --publish never; then
+            echo "✅ Build succeeded on attempt $ATTEMPT"
+            break
+          else
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "❌ Build failed after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "⚠️ Build attempt $ATTEMPT failed, cleaning up and retrying..."
+            # Clean up volumes and wait before retry
+            for vol in $(mount | grep '/Volumes/' | awk '{print $3}' || true); do
+              if [ -n "$vol" ]; then
+                hdiutil detach "$vol" -force 2>/dev/null || true
+              fi
+            done
+            sleep 5
+            ATTEMPT=$((ATTEMPT + 1))
+          fi
+        done
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CSC_IDENTITY_AUTO_DISCOVERY: false
         APP_VERSION: ${{ env.APP_VERSION }}
         BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+        DEBUG: electron-builder
+        DEBUG_DMG: "true"
     
     - name: Remove quarantine attributes (macOS)
       if: matrix.os == 'macos-latest'
