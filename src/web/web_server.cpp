@@ -470,8 +470,8 @@ void WebServerManager::handleClearLaps(AsyncWebServerRequest* request) {
 }
 
 void WebServerManager::handleSetFrequency(AsyncWebServerRequest* request) {
-    if (request->hasParam("frequency")) {
-        int freq = request->getParam("frequency")->value().toInt();
+    if (request->hasParam("frequency", true)) {
+        int freq = request->getParam("frequency", true)->value().toInt();
         if (freq >= 5645 && freq <= 5945) {
             if (_timingCore) {
                 uint8_t band, channel;
@@ -498,9 +498,9 @@ void WebServerManager::handleSetFrequency(AsyncWebServerRequest* request) {
 void WebServerManager::handleSetThreshold(AsyncWebServerRequest* request) {
     static char response[128];
     
-    if (request->hasParam("enter_rssi") && request->hasParam("exit_rssi")) {
-        int enter_rssi = request->getParam("enter_rssi")->value().toInt();
-        int exit_rssi = request->getParam("exit_rssi")->value().toInt();
+    if (request->hasParam("enter_rssi", true) && request->hasParam("exit_rssi", true)) {
+        int enter_rssi = request->getParam("enter_rssi", true)->value().toInt();
+        int exit_rssi = request->getParam("exit_rssi", true)->value().toInt();
         if (enter_rssi >= 0 && enter_rssi <= 255 && exit_rssi >= 0 && exit_rssi <= 255 && enter_rssi > exit_rssi) {
             if (_timingCore) {
                 _timingCore->setEnterRssi(enter_rssi);
@@ -516,8 +516,8 @@ void WebServerManager::handleSetThreshold(AsyncWebServerRequest* request) {
         } else {
             request->send(400, "application/json", "{\"error\":\"invalid_threshold\"}");
         }
-    } else if (request->hasParam("threshold")) {
-        int threshold = request->getParam("threshold")->value().toInt();
+    } else if (request->hasParam("threshold", true)) {
+        int threshold = request->getParam("threshold", true)->value().toInt();
         if (threshold >= 0 && threshold <= 255) {
             uint8_t enter = threshold;
             uint8_t exit = (threshold > 20) ? (threshold - 20) : threshold;
