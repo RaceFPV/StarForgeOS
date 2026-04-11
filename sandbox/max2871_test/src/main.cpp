@@ -3,7 +3,7 @@
  *
  * Tests MAX2871/MAX2871+ synthesizer with a downstream mixer.
  * The chip is programmed to LO = channel - IF_OFFSET_MHZ so that the
- * mixer output lands at a fixed IF (default 200 MHz).
+ * mixer output lands at a fixed IF (default 434 MHz).
  *
  * Supports 1 MHz step resolution across the full 23–6000 MHz range.
  * Auto-cycle toggles two Raceband channels with a short hop lock timeout
@@ -60,7 +60,7 @@
 // MAX2871 is programmed to LO = channel - IF_OFFSET_MHZ (low-side injection).
 // Mixer output: IF = RF - LO = channel - (channel - offset) = IF_OFFSET_MHZ.
 // Flip sign or swap formula here if your mixer uses high-side injection.
-#define IF_OFFSET_MHZ       200
+#define IF_OFFSET_MHZ       434
 
 // Auto-cycle alternates between these two channels (by index into RACEBAND_CHANNELS).
 // All 8 channels are still reachable via 'c <n>' and 'f <freq>'.
@@ -871,7 +871,7 @@ void showHelp() {
     Serial.println("═══════════════════════════════════════════════════");
     Serial.println("  f <freq>  Set channel frequency in MHz");
     Serial.println("            LO offset applied automatically");
-    Serial.println("            Example: f 5658  →  LO = 5458 MHz");
+    Serial.println("            Example: f 5658  →  LO = 5224 MHz");
     Serial.println("            (Disables auto-cycle)");
     Serial.println();
     Serial.println("  c <1-8>   Jump to a Raceband channel");

@@ -24,7 +24,7 @@ Both constants live at the top of `src/main.cpp`:
 
 ```cpp
 #define REF_FREQ_MHZ   50   // MAX2871 REF_IN (MHz); must match hardware (this board: 50 MHz, R=1)
-#define IF_OFFSET_MHZ  200  // mixer IF; LO = channel - IF_OFFSET_MHZ
+#define IF_OFFSET_MHZ  434  // mixer IF; LO = channel - IF_OFFSET_MHZ
 ```
 
 **1 MHz step resolution** is automatic: with **R divider = 1**, `f_PFD` equals
@@ -38,16 +38,16 @@ To switch to high-side injection, change `setChannel()` to use `channel + IF_OFF
 
 | Channel | RF (MHz) | LO (MHz) | IF out |
 |---------|----------|----------|--------|
-| R1      | 5658     | 5458     | 200 MHz |
-| R2      | 5695     | 5495     | 200 MHz |
-| R3      | 5732     | 5532     | 200 MHz |
-| R4\*    | 5800     | 5600     | 200 MHz |
-| R5      | 5806     | 5606     | 200 MHz |
+| R1      | 5658     | 5224     | 434 MHz |
+| R2      | 5695     | 5261     | 434 MHz |
+| R3      | 5732     | 5298     | 434 MHz |
+| R4\*    | 5800     | 5366     | 434 MHz |
+| R5      | 5806     | 5372     | 434 MHz |
+| R6      | 5843     | 5409     | 434 MHz |
+| R7      | 5880     | 5446     | 434 MHz |
+| R8      | 5917     | 5483     | 434 MHz |
 
 \*Fourth table slot / `c 4` is **5800 MHz** for bench (auto-cycle B); standard Raceband R4 is **5769 MHz** if you need to match external gear.
-| R6      | 5843     | 5643     | 200 MHz |
-| R7      | 5880     | 5680     | 200 MHz |
-| R8      | 5917     | 5717     | 200 MHz |
 
 ## Serial Commands
 
