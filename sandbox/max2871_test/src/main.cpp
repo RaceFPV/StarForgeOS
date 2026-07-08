@@ -18,6 +18,7 @@
  *   c <1-8>   Jump to a Raceband channel (disables auto-cycle)
  *   a         Toggle auto-cycle through all Raceband channels (5 sec/step)
  *   l         Read Lock Detect pin
+ *   p         Toggle MAX2871 on/off (register R2 SHDN — software shutdown, SPI stays up)
  *   s         Show status + current register values
  *   h         Show help
  *   t <ms>    Hop / fast re-lock timeout (auto-cycle, benchmark); default 150
@@ -50,6 +51,8 @@
 // RSSI from IF/detector analog output (ADC input). ESP32-C3 ADC1: GPIO0–4 only;
 // GPIO4 is SPI CLK — use 0–3 or move SPI. Default GPIO3 — change to match wiring.
 #define RSSI_ADC_PIN        3
+// Match receiver_test: wait after LO change before RSSI sample (same ms as RX5808_MIN_TUNETIME).
+#define RSSI_MIN_TUNETIME_MS 35
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 // REF_IN frequency in MHz (into MAX2871). With R=1 in R2, f_PFD equals this.
@@ -106,7 +109,8 @@ const uint8_t NUM_CHANNELS = sizeof(RACEBAND_CHANNELS) / sizeof(RACEBAND_CHANNEL
 //                  RFA_EN[5]=1   RF output A enabled
 //                  APWR[4:3]=11  +5 dBm output power
 //   R3 0x0000000B  CDM[16:15]=0  clock divider off; VAS autocalibration on
-//   R2 0x00004042  R[23:14]=1    reference divider = 1 (no division)
+//   R2 0x40004042  SDN[30:29]=10 low-spur mode 1 (sigma-delta; vs 00 low-noise)
+//                  R[23:14]=1    reference divider = 1 (no division)
 //                  LDF[8]=0      boot default; setLO() sets 0=frac-N / 1=int-N
 //                  PDP[6]=1      positive phase detector polarity
 //   R1 0x2000FFF9  M[14:3]=4095  MOD placeholder — overwritten by setLO()
@@ -117,7 +121,7 @@ const uint8_t NUM_CHANNELS = sizeof(RACEBAND_CHANNELS) / sizeof(RACEBAND_CHANNEL
 uint32_t regs[6] = {
     0x007D0000,  // R0 — overwritten by setLO()
     0x2000FFF9,  // R1 — MOD=4095, Phase=1
-    0x00004042,  // R2 — R=1, LDF=frac-N, PDP=positive
+    0x40004042,  // R2 — SDN=10 low-spur 1; R=1; LDF=frac-N; PDP=positive (11=low-spur 2)
     0x0000000B,  // R3 — CDM off, VAS on
     0x6180B23C,  // R4 — DIVA=0, RFA enabled, +5 dBm
     0x00400005,  // R5 — LD = digital lock detect
@@ -132,6 +136,12 @@ uint32_t last_cycle_time    = 0;
 
 // micros() timestamp after last successful setLO() register burst (retune timing)
 static uint32_t g_last_lo_program_us = 0;
+// RSSI path mirrors receiver_test: first sample after setLO() waits RSSI_MIN_TUNETIME_MS
+static bool     g_rssi_after_lo_change = false;
+static uint32_t g_last_lo_change_ms    = 0;
+
+// false = R2 SHDN=1 (datasheet low-power / shutdown — RF off; registers retained)
+static bool     g_synth_powered        = true;
 
 // ─── Prototypes ─────────────────────────────────────────────────────────────
 void    spiWriteWord(uint32_t word);
@@ -145,7 +155,10 @@ bool    waitForLockAfterRetune(uint32_t timeout_ms, uint32_t *out_relock_us);
 bool    waitForLockProgramEdgeToHigh(uint32_t timeout_ms, uint32_t *out_us);
 bool    waitForLockTimed(uint32_t timeout_ms, uint32_t *out_us);
 void    runLockBenchmark(uint16_t num_hops);
+void    setSynthPowered(bool on);
 bool    readLD();
+static uint16_t readRssiAdcClamped();
+uint8_t readRSSI();
 int     readRssiMilliVolts();
 void    processCommand(String cmd);
 void    showHelp();
@@ -172,8 +185,9 @@ void setup() {
     pinMode(MAX2871_LD_PIN,   INPUT);
     pinMode(MAX2871_MUX_PIN,  INPUT_PULLDOWN);
 
+    pinMode(RSSI_ADC_PIN, INPUT);
     analogReadResolution(12);
-    analogSetPinAttenuation(RSSI_ADC_PIN, ADC_11db);  // ~0–3.3 V full scale
+    analogSetAttenuation(ADC_11db);  // same as receiver_test (full-scale ADC path)
 
     digitalWrite(MAX2871_LE_PIN,   LOW);
     digitalWrite(MAX2871_CLK_PIN,  LOW);
@@ -228,7 +242,8 @@ void loop() {
         if (cmd.length() > 0) processCommand(cmd);
     }
 
-    if (auto_cycle_enabled && (millis() - last_cycle_time >= CYCLE_INTERVAL_MS)) {
+    if (g_synth_powered && auto_cycle_enabled
+        && (millis() - last_cycle_time >= CYCLE_INTERVAL_MS)) {
         uint8_t  next_idx = on_cycle_a ? CYCLE_CHAN_B : CYCLE_CHAN_A;
         uint32_t next     = RACEBAND_CHANNELS[next_idx];
 
@@ -277,11 +292,15 @@ void loop() {
     // Periodic status line
     static uint32_t last_print = 0;
     if (millis() - last_print >= 1000) {
-        int rssi_mv = readRssiMilliVolts();
-        Serial.printf("[LD: %s] ch=%lu MHz  LO=%lu MHz | AUTO-CYCLE: %s | RSSI: %.2f V\n",
+        uint16_t rssi_adc = readRssiAdcClamped();
+        uint8_t  rssi     = rssi_adc >> 3;
+        int      rssi_mv  = (int)((uint32_t)rssi_adc * 3300 / 4095);
+        Serial.printf("[RSSI] %u | [LD: %s] ch=%lu MHz  LO=%lu MHz | AUTO: %s | SYNTH: %s | %.2f V\n",
+                      rssi,
                       readLD() ? "LOCKED  " : "UNLOCKED",
                       current_channel, current_lo,
                       auto_cycle_enabled ? "ON" : "OFF",
+                      g_synth_powered ? "ON " : "OFF",
                       rssi_mv / 1000.0f);
         last_print = millis();
     }
@@ -510,7 +529,32 @@ void setLO(uint32_t lo_mhz) {
     }
 
     g_last_lo_program_us = micros();
+    g_last_lo_change_ms   = millis();
+    g_rssi_after_lo_change = true;
     current_lo = lo_mhz;
+}
+
+// R2 bit 5 SHDN: 1 = device shutdown (SPI/I²C registers retained per datasheet).
+static void flushRegsToChip() {
+    for (int r = 5; r >= 0; r--) {
+        spiWriteWord(regs[r]);
+        delayMicroseconds(100);
+    }
+}
+
+void setSynthPowered(bool on) {
+    if (on) {
+        regs[2] &= ~(1u << 5);
+        g_synth_powered = true;
+        setLO(current_lo);
+        Serial.printf("\n✓ MAX2871 enabled (R2 SHDN=0)  LO=%lu MHz\n\n", current_lo);
+    } else {
+        regs[2] |= (1u << 5);
+        g_synth_powered = false;
+        flushRegsToChip();
+        Serial.println("\n✓ MAX2871 software shutdown (R2 SHDN=1). RF/PLL off; registers kept in RAM.");
+        Serial.println("  Type `p` again to turn back on and restore LO.\n");
+    }
 }
 
 // ─── Lock Detect ─────────────────────────────────────────────────────────────
@@ -518,8 +562,29 @@ bool readLD() {
     return digitalRead(MAX2871_LD_PIN) == HIGH;
 }
 
+// Same ADC handling as receiver_test readRSSI(): settle delay, 12-bit read, clamp to 2047.
+static uint16_t readRssiAdcClamped() {
+    if (g_rssi_after_lo_change) {
+        uint32_t elapsed = millis() - g_last_lo_change_ms;
+        if (elapsed < RSSI_MIN_TUNETIME_MS) {
+            delay(RSSI_MIN_TUNETIME_MS - elapsed);
+        }
+        g_rssi_after_lo_change = false;
+    }
+    uint16_t adc_value = analogRead(RSSI_ADC_PIN);
+    if (adc_value > 2047) {
+        adc_value = 2047;
+    }
+    return adc_value;
+}
+
+uint8_t readRSSI() {
+    return readRssiAdcClamped() >> 3;
+}
+
 int readRssiMilliVolts() {
-    return analogReadMilliVolts(RSSI_ADC_PIN);
+    uint16_t adc_value = readRssiAdcClamped();
+    return (int)((uint32_t)adc_value * 3300 / 4095);
 }
 
 // Waits up to timeout_ms for LD HIGH (e.g. first lock when LD may already be LOW).
@@ -679,6 +744,10 @@ void processCommand(String cmd) {
     cmdLower.toLowerCase();
 
     if (cmdLower.startsWith("f ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable, then set frequency.\n");
+            return;
+        }
         int freq = cmd.substring(2).toInt();
         if (freq >= (IF_OFFSET_MHZ + 23) && freq <= (6000 + IF_OFFSET_MHZ)) {
             if (auto_cycle_enabled) {
@@ -707,6 +776,10 @@ void processCommand(String cmd) {
         }
     }
     else if (cmdLower.startsWith("c ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable, then select channel.\n");
+            return;
+        }
         int ch = cmd.substring(2).toInt();
         if (ch >= 1 && ch <= NUM_CHANNELS) {
             if (auto_cycle_enabled) {
@@ -737,6 +810,9 @@ void processCommand(String cmd) {
     }
     else if (cmdLower == "a") {
         auto_cycle_enabled = !auto_cycle_enabled;
+        if (auto_cycle_enabled && !g_synth_powered) {
+            Serial.println("\n  (Auto-cycle enabled — synth is off; type `p` to run PLL.)\n");
+        }
         if (auto_cycle_enabled) {
             // next_idx = on_cycle_a ? B : A — must point at the *other* channel, not where we already are
             // (otherwise re-enable after benchmark on 5800 would “hop” 5800→5800 for 5 s).
@@ -782,6 +858,10 @@ void processCommand(String cmd) {
         }
     }
     else if (cmdLower == "b" || cmdLower.startsWith("b ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable before benchmark.\n");
+            return;
+        }
         uint16_t n = 10;
         if (cmdLower.startsWith("b ") && cmd.length() > 2) {
             int v = cmd.substring(2).toInt();
@@ -794,6 +874,9 @@ void processCommand(String cmd) {
             Serial.println("\n→ AUTO-CYCLE DISABLED (benchmark)");
         }
         runLockBenchmark(n);
+    }
+    else if (cmdLower == "p") {
+        setSynthPowered(!g_synth_powered);
     }
     else if (cmdLower == "l") {
         bool locked = readLD();
@@ -826,6 +909,8 @@ void showStatus() {
     Serial.printf("  LO:         %lu MHz  (channel - %d MHz)\n",
                   current_lo, IF_OFFSET_MHZ);
     Serial.printf("  Lock:       %s\n", readLD() ? "LOCKED" : "UNLOCKED");
+    Serial.printf("  Synth:      %s  (command `p` — R2 SHDN)\n",
+                  g_synth_powered ? "ON (running)" : "OFF (shutdown)");
     Serial.printf("  Auto-cycle: %s\n",
                   auto_cycle_enabled
                       ? "ENABLED  (R" + String(CYCLE_CHAN_A+1) + " ↔ R" + String(CYCLE_CHAN_B+1) + ")"
@@ -859,8 +944,13 @@ void showStatus() {
     Serial.printf("    LE:   GPIO %d\n", MAX2871_LE_PIN);
     Serial.printf("    LD:   GPIO %d\n", MAX2871_LD_PIN);
     Serial.printf("    MUX:  GPIO %d\n", MAX2871_MUX_PIN);
-    Serial.printf("    RSSI: GPIO %d (ADC)  %.2f V\n",
-                  RSSI_ADC_PIN, readRssiMilliVolts() / 1000.0f);
+    {
+        uint16_t rssi_adc = readRssiAdcClamped();
+        uint8_t  r        = rssi_adc >> 3;
+        int      mv       = (int)((uint32_t)rssi_adc * 3300 / 4095);
+        Serial.printf("    RSSI: GPIO %d (ADC)  %u (0-255)  %.2f V\n",
+                      RSSI_ADC_PIN, r, mv / 1000.0f);
+    }
     Serial.println("═══════════════════════════════════════════════════");
 }
 
@@ -888,6 +978,7 @@ void showHelp() {
     Serial.println("  b [n]     Benchmark n hops — min/avg/max µs (follows m)");
     Serial.println();
     Serial.println("  l         Read Lock Detect pin");
+    Serial.println("  p         Toggle synth on/off (R2 SHDN — software shutdown)");
     Serial.println("  s         Show status, channel table, registers");
     Serial.println("  h         Show this help");
     Serial.println("═══════════════════════════════════════════════════");
