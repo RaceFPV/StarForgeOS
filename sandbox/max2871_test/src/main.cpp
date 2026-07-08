@@ -25,6 +25,13 @@
  *   i <ms>    Initial / conservative timeout (boot, manual f/c); default 3000
  *   b [n]     Benchmark re-lock (see m); default 10 hops
  *   m <0|1>   Lock timing: 0=LOW→HIGH (strict), 1=setLO end→HIGH (no unlock required)
+ *   sweep [freq] [ms] [avg]  Generator-sweep RSSI stream (CSV for plotting)
+ *             sweep              Toggle stream at current channel
+ *             sweep off          Stop stream
+ *             sweep 5800         Set channel (LO = RF - IF), start stream
+ *             sweep 5800 100     Sample every 100 ms (50–2000)
+ *             sweep 5800 100 16  100 ms interval, 16 ADC reads averaged per line
+ *             sweep 5800 8       8 reads averaged (default interval); lone arg <50 = avg
  *
  * SPI protocol (MAX2871):
  *   - 32-bit words, MSB first
@@ -53,6 +60,14 @@
 #define RSSI_ADC_PIN        3
 // Match receiver_test: wait after LO change before RSSI sample (same ms as RX5808_MIN_TUNETIME).
 #define RSSI_MIN_TUNETIME_MS 35
+
+// Generator-sweep assist: average N ADC reads per line; default print interval.
+#define RSSI_STREAM_SAMPLES_DEFAULT     8
+#define RSSI_STREAM_SAMPLES_MIN         1
+#define RSSI_STREAM_SAMPLES_MAX        64
+#define RSSI_STREAM_INTERVAL_MS_DEFAULT 100
+#define RSSI_STREAM_INTERVAL_MS_MIN     50
+#define RSSI_STREAM_INTERVAL_MS_MAX   2000
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 // REF_IN frequency in MHz (into MAX2871). With R=1 in R2, f_PFD equals this.
@@ -143,13 +158,21 @@ static uint32_t g_last_lo_change_ms    = 0;
 // false = R2 SHDN=1 (datasheet low-power / shutdown — RF off; registers retained)
 static bool     g_synth_powered        = true;
 
+// Generator-sweep RSSI CSV stream (external sig gen sweeps; LO fixed at channel - IF).
+static bool     g_rssi_stream_enabled  = false;
+static uint32_t g_rssi_stream_interval_ms = RSSI_STREAM_INTERVAL_MS_DEFAULT;
+static uint32_t g_rssi_stream_last_ms     = 0;
+static uint8_t  g_rssi_stream_samples     = RSSI_STREAM_SAMPLES_DEFAULT;
+
 // ─── Prototypes ─────────────────────────────────────────────────────────────
 void    spiWriteWord(uint32_t word);
 bool    checkChip();
 void    runHealthCheck();
 void    initSynth();
-void    setChannel(uint32_t channel_mhz);
-void    setLO(uint32_t lo_mhz);
+void    setChannel(uint32_t channel_mhz, bool verbose = true);
+void    setRssiStreamEnabled(bool on);
+void    printRssiStreamLine();
+void    setLO(uint32_t lo_mhz, bool verbose = true);
 bool    waitForLock(uint32_t timeout_ms, uint32_t *out_lock_ms);
 bool    waitForLockAfterRetune(uint32_t timeout_ms, uint32_t *out_relock_us);
 bool    waitForLockProgramEdgeToHigh(uint32_t timeout_ms, uint32_t *out_us);
@@ -242,7 +265,7 @@ void loop() {
         if (cmd.length() > 0) processCommand(cmd);
     }
 
-    if (g_synth_powered && auto_cycle_enabled
+    if (g_synth_powered && auto_cycle_enabled && !g_rssi_stream_enabled
         && (millis() - last_cycle_time >= CYCLE_INTERVAL_MS)) {
         uint8_t  next_idx = on_cycle_a ? CYCLE_CHAN_B : CYCLE_CHAN_A;
         uint32_t next     = RACEBAND_CHANNELS[next_idx];
@@ -289,20 +312,28 @@ void loop() {
         }
     }
 
-    // Periodic status line
-    static uint32_t last_print = 0;
-    if (millis() - last_print >= 1000) {
-        uint16_t rssi_adc = readRssiAdcClamped();
-        uint8_t  rssi     = rssi_adc >> 3;
-        int      rssi_mv  = (int)((uint32_t)rssi_adc * 3300 / 4095);
-        Serial.printf("[RSSI] %u | [LD: %s] ch=%lu MHz  LO=%lu MHz | AUTO: %s | SYNTH: %s | %.2f V\n",
-                      rssi,
-                      readLD() ? "LOCKED  " : "UNLOCKED",
-                      current_channel, current_lo,
-                      auto_cycle_enabled ? "ON" : "OFF",
-                      g_synth_powered ? "ON " : "OFF",
-                      rssi_mv / 1000.0f);
-        last_print = millis();
+    if (g_rssi_stream_enabled) {
+        uint32_t now = millis();
+        if (now - g_rssi_stream_last_ms >= g_rssi_stream_interval_ms) {
+            printRssiStreamLine();
+            g_rssi_stream_last_ms = now;
+        }
+    } else {
+        // Periodic status line (suppressed during generator-sweep stream)
+        static uint32_t last_print = 0;
+        if (millis() - last_print >= 1000) {
+            uint16_t rssi_adc = readRssiAdcClamped();
+            uint8_t  rssi     = rssi_adc >> 3;
+            int      rssi_mv  = (int)((uint32_t)rssi_adc * 3300 / 4095);
+            Serial.printf("[RSSI] %u | [LD: %s] ch=%lu MHz  LO=%lu MHz | AUTO: %s | SYNTH: %s | %.2f V\n",
+                          rssi,
+                          readLD() ? "LOCKED  " : "UNLOCKED",
+                          current_channel, current_lo,
+                          auto_cycle_enabled ? "ON" : "OFF",
+                          g_synth_powered ? "ON " : "OFF",
+                          rssi_mv / 1000.0f);
+            last_print = millis();
+        }
     }
 
     delay(10);
@@ -450,17 +481,19 @@ void initSynth() {
 // ─── Channel → LO Mapping ────────────────────────────────────────────────────
 // Takes the actual RF channel frequency, subtracts IF_OFFSET_MHZ, and programs
 // the MAX2871. Mixer output: IF = RF_in - LO = IF_OFFSET_MHZ.
-void setChannel(uint32_t channel_mhz) {
+void setChannel(uint32_t channel_mhz, bool verbose) {
     if (channel_mhz <= (uint32_t)IF_OFFSET_MHZ) {
         Serial.printf("ERROR: channel %lu MHz is <= IF offset (%d MHz)\n",
                       channel_mhz, IF_OFFSET_MHZ);
         return;
     }
     uint32_t lo = channel_mhz - IF_OFFSET_MHZ;
-    Serial.printf("  channel=%lu MHz  LO=%lu MHz  IF=%d MHz\n",
-                  channel_mhz, lo, IF_OFFSET_MHZ);
+    if (verbose) {
+        Serial.printf("  channel=%lu MHz  LO=%lu MHz  IF=%d MHz\n",
+                      channel_mhz, lo, IF_OFFSET_MHZ);
+    }
     current_channel = channel_mhz;
-    setLO(lo);
+    setLO(lo, verbose);
 }
 
 // ─── LO Frequency Programming ────────────────────────────────────────────────
@@ -476,7 +509,7 @@ void setChannel(uint32_t channel_mhz) {
 //   R0: INT[31], N[30:15], FRAC[14:3], addr[2:0]=000
 //   R1: MOD[14:3]   (upper bits preserved)
 //   R4: DIVA[22:20] (all other bits preserved)
-void setLO(uint32_t lo_mhz) {
+void setLO(uint32_t lo_mhz, bool verbose) {
     if (lo_mhz < 23 || lo_mhz > 6000) {
         Serial.printf("ERROR: LO %lu MHz out of range (23–6000 MHz)\n", lo_mhz);
         return;
@@ -505,8 +538,10 @@ void setLO(uint32_t lo_mhz) {
     uint16_t MOD      = int_mode ? 2 : (uint16_t)pfd;
     uint16_t FRAC     = int_mode ? 0 : (uint16_t)rem;  // 0 ≤ FRAC < MOD ✓
 
-    Serial.printf("  → LO=%lu MHz: VCO=%lu, N=%lu, FRAC=%u, MOD=%u, DIVA=%u (%s-N)\n",
-                  lo_mhz, vco, N, FRAC, MOD, diva, int_mode ? "integer" : "frac");
+    if (verbose) {
+        Serial.printf("  → LO=%lu MHz: VCO=%lu, N=%lu, FRAC=%u, MOD=%u, DIVA=%u (%s-N)\n",
+                      lo_mhz, vco, N, FRAC, MOD, diva, int_mode ? "integer" : "frac");
+    }
 
     // Patch R0: INT[31], N[30:15], FRAC[14:3], addr=0
     regs[0] = (int_mode ? (1UL << 31) : 0UL) |
@@ -585,6 +620,63 @@ uint8_t readRSSI() {
 int readRssiMilliVolts() {
     uint16_t adc_value = readRssiAdcClamped();
     return (int)((uint32_t)adc_value * 3300 / 4095);
+}
+
+// Oversampled RSSI for generator-sweep plots (first sample honors post-tune settle).
+static uint16_t readRssiAdcAveraged(uint8_t n_samples) {
+    if (n_samples < 1) {
+        n_samples = 1;
+    }
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < n_samples; i++) {
+        sum += readRssiAdcClamped();
+        if (i + 1 < n_samples) {
+            delayMicroseconds(200);
+        }
+    }
+    return (uint16_t)(sum / n_samples);
+}
+
+void printRssiStreamLine() {
+    uint16_t adc_avg = readRssiAdcAveraged(g_rssi_stream_samples);
+    uint8_t  rssi    = adc_avg >> 3;
+    int      mv      = (int)((uint32_t)adc_avg * 3300 / 4095);
+    // time_ms, channel (RF in), LO, adc_avg, rssi_0-255, mv — plot vs external gen sweep time
+    Serial.printf("%lu,%lu,%lu,%u,%u,%d\n",
+                  (unsigned long)millis(),
+                  (unsigned long)current_channel,
+                  (unsigned long)current_lo,
+                  (unsigned)adc_avg,
+                  (unsigned)rssi,
+                  mv);
+}
+
+void setRssiStreamEnabled(bool on) {
+    if (on == g_rssi_stream_enabled) {
+        return;
+    }
+    g_rssi_stream_enabled = on;
+    g_rssi_stream_last_ms = millis();
+    if (on) {
+        Serial.println();
+        Serial.println("# RSSI stream ON — CSV: time_ms,channel_mhz,lo_mhz,adc_avg,rssi_0_255,mv");
+        Serial.printf("# LO fixed at channel-%d MHz; sweep external generator (e.g. 4900–5900 MHz)\n",
+                      IF_OFFSET_MHZ);
+        Serial.printf("# Expect sharp peaks at channel (~5800) and image (LO-%d ≈ %lu MHz at ch 5800)\n",
+                      IF_OFFSET_MHZ,
+                      (unsigned long)(current_lo > (uint32_t)IF_OFFSET_MHZ
+                                          ? current_lo - IF_OFFSET_MHZ
+                                          : 0));
+        Serial.printf("# %u ADC samples averaged per line, interval %lu ms — type `sweep off` to stop\n",
+                      (unsigned)g_rssi_stream_samples,
+                      (unsigned long)g_rssi_stream_interval_ms);
+        Serial.println("# time_ms,channel_mhz,lo_mhz,adc_avg,rssi_0_255,mv");
+        printRssiStreamLine();
+    } else {
+        Serial.println();
+        Serial.println("# RSSI stream OFF");
+        Serial.println();
+    }
 }
 
 // Waits up to timeout_ms for LD HIGH (e.g. first lock when LD may already be LOW).
@@ -875,6 +967,106 @@ void processCommand(String cmd) {
         }
         runLockBenchmark(n);
     }
+    else if (cmdLower == "sweep" || cmdLower.startsWith("sweep ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable before RSSI stream.\n");
+            return;
+        }
+
+        String args = cmd.substring(cmdLower.startsWith("sweep ") ? 6 : 5);
+        args.trim();
+
+        if (args.length() == 0) {
+            if (!g_rssi_stream_enabled && auto_cycle_enabled) {
+                auto_cycle_enabled = false;
+                Serial.println("\n→ AUTO-CYCLE DISABLED (generator-sweep RSSI stream)");
+            }
+            setRssiStreamEnabled(!g_rssi_stream_enabled);
+            return;
+        }
+
+        String argsLower = args;
+        argsLower.toLowerCase();
+        if (argsLower == "off" || argsLower == "stop" || argsLower == "0") {
+            setRssiStreamEnabled(false);
+            return;
+        }
+
+        int space = args.indexOf(' ');
+        String freqStr = (space >= 0) ? args.substring(0, space) : args;
+        String rest    = (space >= 0) ? args.substring(space + 1) : "";
+        rest.trim();
+
+        int freq = freqStr.toInt();
+        if (freq < (IF_OFFSET_MHZ + 23) || freq > (6000 + IF_OFFSET_MHZ)) {
+            Serial.println("\n✗ sweep <freq> [interval_ms] [avg] — channel out of range for IF offset\n");
+            return;
+        }
+
+        g_rssi_stream_interval_ms = RSSI_STREAM_INTERVAL_MS_DEFAULT;
+        g_rssi_stream_samples     = RSSI_STREAM_SAMPLES_DEFAULT;
+
+        if (rest.length() > 0) {
+            int sp2 = rest.indexOf(' ');
+            String tok1 = (sp2 >= 0) ? rest.substring(0, sp2) : rest;
+            String tok2 = (sp2 >= 0) ? rest.substring(sp2 + 1) : "";
+            tok1.trim();
+            tok2.trim();
+
+            int v1 = tok1.toInt();
+            if (tok2.length() > 0) {
+                int v2 = tok2.toInt();
+                if (v1 < RSSI_STREAM_INTERVAL_MS_MIN
+                    || v1 > RSSI_STREAM_INTERVAL_MS_MAX) {
+                    Serial.printf("\n✗ Interval must be %d–%d ms\n\n",
+                                  RSSI_STREAM_INTERVAL_MS_MIN,
+                                  RSSI_STREAM_INTERVAL_MS_MAX);
+                    return;
+                }
+                if (v2 < RSSI_STREAM_SAMPLES_MIN || v2 > RSSI_STREAM_SAMPLES_MAX) {
+                    Serial.printf("\n✗ Average count must be %d–%d ADC reads\n\n",
+                                  RSSI_STREAM_SAMPLES_MIN,
+                                  RSSI_STREAM_SAMPLES_MAX);
+                    return;
+                }
+                g_rssi_stream_interval_ms = (uint32_t)v1;
+                g_rssi_stream_samples     = (uint8_t)v2;
+            } else if (v1 >= RSSI_STREAM_INTERVAL_MS_MIN
+                       && v1 <= RSSI_STREAM_INTERVAL_MS_MAX) {
+                g_rssi_stream_interval_ms = (uint32_t)v1;
+            } else if (v1 >= RSSI_STREAM_SAMPLES_MIN && v1 <= RSSI_STREAM_SAMPLES_MAX) {
+                g_rssi_stream_samples = (uint8_t)v1;
+            } else {
+                Serial.printf("\n✗ sweep <freq> [interval_ms] [avg] — interval %d–%d ms, "
+                              "or lone avg %d–%d (< interval min)\n\n",
+                              RSSI_STREAM_INTERVAL_MS_MIN,
+                              RSSI_STREAM_INTERVAL_MS_MAX,
+                              RSSI_STREAM_SAMPLES_MIN,
+                              RSSI_STREAM_SAMPLES_MAX);
+                return;
+            }
+        }
+
+        if (auto_cycle_enabled) {
+            auto_cycle_enabled = false;
+            Serial.println("\n→ AUTO-CYCLE DISABLED (generator-sweep RSSI stream)");
+        }
+
+        Serial.printf("\n→ Generator-sweep setup: channel %d MHz → LO %d MHz (IF %d MHz)\n",
+                      freq, freq - IF_OFFSET_MHZ, IF_OFFSET_MHZ);
+        setChannel((uint32_t)freq, false);
+
+        uint32_t t_g_us = 0;
+        if (waitForLockTimed(g_ld_timeout_initial_ms, &t_g_us)) {
+            Serial.printf("✓ Locked in %lu µs (%.2f ms)\n",
+                          (unsigned long)t_g_us, t_g_us / 1000.0f);
+        } else {
+            Serial.printf("! Lock timeout (%lu ms) — streaming anyway (RSSI may be noisy)\n",
+                          (unsigned long)g_ld_timeout_initial_ms);
+        }
+
+        setRssiStreamEnabled(true);
+    }
     else if (cmdLower == "p") {
         setSynthPowered(!g_synth_powered);
     }
@@ -915,6 +1107,15 @@ void showStatus() {
                   auto_cycle_enabled
                       ? "ENABLED  (R" + String(CYCLE_CHAN_A+1) + " ↔ R" + String(CYCLE_CHAN_B+1) + ")"
                       : "DISABLED");
+    Serial.printf("  RSSI stream: %s",
+                  g_rssi_stream_enabled ? "ON" : "OFF");
+    if (g_rssi_stream_enabled) {
+        Serial.printf("  (%u samples, %lu ms)\n",
+                      (unsigned)g_rssi_stream_samples,
+                      (unsigned long)g_rssi_stream_interval_ms);
+    } else {
+        Serial.println();
+    }
     Serial.printf("  Reference:  %d MHz  (1 MHz steps via frac-N)\n", REF_FREQ_MHZ);
     Serial.printf("  Lock: initial timeout %lu ms  |  hop timeout %lu ms\n",
                   (unsigned long)g_ld_timeout_initial_ms,
@@ -976,6 +1177,25 @@ void showHelp() {
     Serial.println("  t <ms>    Hop / fast re-lock timeout (10–5000), default 150");
     Serial.println("  i <ms>    Initial timeout for boot & manual f/c (200–60000), default 3000");
     Serial.println("  b [n]     Benchmark n hops — min/avg/max µs (follows m)");
+    Serial.println();
+    Serial.println("  sweep [freq] [ms] [avg]  Generator-sweep RSSI CSV stream");
+    Serial.println("            sweep              Toggle stream at current channel");
+    Serial.println("            sweep off          Stop stream");
+    Serial.println("            sweep 5800         Set channel (LO = RF - IF), start stream");
+    Serial.printf("            sweep 5800 %d      Default: %d ms interval, %u reads avg\n",
+                  RSSI_STREAM_INTERVAL_MS_DEFAULT,
+                  RSSI_STREAM_INTERVAL_MS_DEFAULT,
+                  (unsigned)RSSI_STREAM_SAMPLES_DEFAULT);
+    Serial.printf("            sweep 5800 100     Interval only (%d–%d ms)\n",
+                  RSSI_STREAM_INTERVAL_MS_MIN,
+                  RSSI_STREAM_INTERVAL_MS_MAX);
+    Serial.printf("            sweep 5800 100 16  Interval + avg (%d–%d reads)\n",
+                  RSSI_STREAM_SAMPLES_MIN,
+                  RSSI_STREAM_SAMPLES_MAX);
+    Serial.printf("            sweep 5800 4       Avg only (lone arg <%d = reads, not ms)\n",
+                  RSSI_STREAM_INTERVAL_MS_MIN);
+    Serial.println("            Plot time_ms vs adc; sweep external sig gen");
+    Serial.println("            Sweep external sig gen (coarse 10–25 MHz, fine ±10 MHz @ 5800)");
     Serial.println();
     Serial.println("  l         Read Lock Detect pin");
     Serial.println("  p         Toggle synth on/off (R2 SHDN — software shutdown)");

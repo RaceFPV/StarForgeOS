@@ -63,6 +63,27 @@ To switch to high-side injection, change `setChannel()` to use `channel + IF_OFF
 | `i <ms>` | Initial / conservative timeout for boot and manual `f` / `c` (default **3000** ms) |
 | `m 0` / `m 1` | **0** = strict: µs **LD LOW→HIGH** (fails if LD never glitches low). **1** = **setLO end→LD HIGH** (for retunes that never show LOW; can be ~0 µs if LD stayed HIGH). |
 | `b [n]` | Lock benchmark: **`n`** toggles A↔B (default 10); uses **`m`** for how time is measured. Warmup if you start on A. |
+| `p` | Toggle synth on/off (R2 SHDN — software shutdown) |
+| `sweep [freq] [ms] [avg]` | Generator-sweep RSSI CSV stream while you sweep an external signal generator (LO fixed at channel − IF). See below. |
+
+### `sweep` — corroborating RSSI sweep
+
+Locks the LO to a channel (same IF offset as `f`), then streams oversampled RSSI as CSV for plotting against an external generator sweep.
+
+| Command | Effect |
+|---------|--------|
+| `sweep` | Toggle stream at current channel |
+| `sweep off` | Stop stream |
+| `sweep 5800` | Channel 5800 → LO 5366 MHz; default **8** ADC reads avg, **100** ms interval |
+| `sweep 5800 100` | 100 ms interval only |
+| `sweep 5800 100 16` | 100 ms interval, 16 reads averaged |
+| `sweep 5800 4` | 4 reads averaged only (lone arg &lt; 50 = avg count, not ms) |
+
+CSV columns: `time_ms,channel_mhz,lo_mhz,adc_avg,rssi_0_255,mv`
+
+**Suggested workflow:** set generator ~−30 dBm → `sweep 5800` → coarse gen sweep 4900–5900 MHz (10–25 MHz steps, catches ~4932 MHz image) → fine sweep ±10 MHz around 5800 at 1 MHz → `sweep off`.
+
+**Interpretation:** sharp spike at 5800 (and ideally ~4932) = superhet mixing; smooth RSSI following generator level with no narrow peaks = leakage / no downconversion.
 
 ## References
 
