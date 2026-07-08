@@ -64,22 +64,24 @@ To switch to high-side injection, change `setChannel()` to use `channel + IF_OFF
 | `m 0` / `m 1` | **0** = strict: µs **LD LOW→HIGH** (fails if LD never glitches low). **1** = **setLO end→LD HIGH** (for retunes that never show LOW; can be ~0 µs if LD stayed HIGH). |
 | `b [n]` | Lock benchmark: **`n`** toggles A↔B (default 10); uses **`m`** for how time is measured. Warmup if you start on A. |
 | `p` | Toggle synth on/off (R2 SHDN — software shutdown) |
-| `sweep [freq] [ms] [avg]` | Generator-sweep RSSI CSV stream while you sweep an external signal generator (LO fixed at channel − IF). See below. |
+| `sweep [freq] [ms]` | Generator-sweep RSSI CSV stream while you sweep an external signal generator (LO fixed at channel − IF). See below. |
 
 ### `sweep` — corroborating RSSI sweep
 
-Locks the LO to a channel (same IF offset as `f`), then streams oversampled RSSI as CSV for plotting against an external generator sweep.
+Locks the LO to a channel (same IF offset as `f`), then continuously samples the ADC and prints the **peak** RSSI held over each interval as CSV for plotting against an external generator sweep.
 
 | Command | Effect |
 |---------|--------|
 | `sweep` | Toggle stream at current channel |
 | `sweep off` | Stop stream |
-| `sweep 5800` | Channel 5800 → LO 5366 MHz; default **8** ADC reads avg, **100** ms interval |
-| `sweep 5800 100` | 100 ms interval only |
-| `sweep 5800 100 16` | 100 ms interval, 16 reads averaged |
-| `sweep 5800 4` | 4 reads averaged only (lone arg &lt; 50 = avg count, not ms) |
+| `sweep 5800` | Channel 5800 → LO 5366 MHz; peak printed every **100** ms (default) |
+| `sweep 5800 50` | Peak printed every 50 ms (50–2000 ms allowed) |
 
-CSV columns: `time_ms,channel_mhz,lo_mhz,adc_avg,rssi_0_255,mv`
+While streaming, the main loop samples the ADC on every pass (no `delay(10)`) and tracks both the maximum and arithmetic mean until the interval elapses. This stream uses the raw, unclamped 12-bit ADC value (`0–4095`). The `reads` column shows how many ADC samples contributed to the peak and mean.
+
+CSV columns: `time_ms,channel_mhz,lo_mhz,adc_peak_raw_0_4095,adc_mean_raw_0_4095,mv,reads`
+
+`adc_mean_raw_0_4095` is printed as fixed-point with two decimal places, e.g. `45.40`, so sub-count changes remain visible.
 
 **Suggested workflow:** set generator ~−30 dBm → `sweep 5800` → coarse gen sweep 4900–5900 MHz (10–25 MHz steps, catches ~4932 MHz image) → fine sweep ±10 MHz around 5800 at 1 MHz → `sweep off`.
 
