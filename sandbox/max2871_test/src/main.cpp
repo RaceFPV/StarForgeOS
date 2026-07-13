@@ -1,7 +1,12 @@
 /*
- * MAX2871+ Test - Minimal Synthesizer Diagnostic
+ * Ravager / MAX2871+ Test - Superhet Receiver Diagnostic
  *
- * Tests MAX2871/MAX2871+ synthesizer with a downstream mixer.
+ * Bring-up firmware for Ravager, a discrete 5.8 GHz superheterodyne
+ * RSSI receiver for FPV race gate timing. The receive path is:
+ * antenna/U.FL → 5.8 GHz filter/LNA → LTC5562 mixer → 433.92 MHz SAW/IF
+ * filter → LT5581 detector → ESP32-C3 ADC.
+ *
+ * Tests MAX2871/MAX2871+ synthesizer with the downstream mixer/RSSI path.
  * The chip is programmed to LO = channel - IF_OFFSET_MHZ so that the
  * mixer output lands at a fixed IF (default 434 MHz).
  *
@@ -23,6 +28,7 @@
  *   h         Show help
  *   t <ms>    Hop / fast re-lock timeout (auto-cycle, benchmark); default 150
  *   i <ms>    Initial / conservative timeout (boot, manual f/c); default 3000
+ *   w <0-3>   LO output power: 0=-4 dBm, 1=-1 dBm, 2=+2 dBm, 3=+5 dBm
  *   b [n]     Benchmark re-lock (see m); default 10 hops
  *   m <0|1>   Lock timing: 0=LOW→HIGH (strict), 1=setLO end→HIGH (no unlock required)
  *   sweep [freq] [ms]  Generator-sweep RSSI stream (peak-hold CSV for plotting)
@@ -30,6 +36,12 @@
  *             sweep off          Stop stream
  *             sweep 5800         Set channel (LO = RF - IF), start stream
  *             sweep 5800 100     Print peak RSSI every 100 ms (50–2000)
+ *   scan4 [duration_s] [settle_us] [f1 f2 f3 f4]
+ *             500 Hz/channel proof-of-concept; default 10 seconds, 250 µs settle,
+ *             F-band F1-F4 (5740/5760/5780/5800). Forces LO power to w 0.
+ *             Uses R0-only fast hops and prints summary stats after the run.
+ *   scan4raw [duration_s] [settle_us] [f1 f2 f3 f4]
+ *             Same fast scan, stores raw samples in RAM, then dumps CSV.
  *
  * SPI protocol (MAX2871):
  *   - 32-bit words, MSB first
@@ -44,6 +56,7 @@
  */
 
 #include <Arduino.h>
+#include <stdlib.h>
 
 // ─── Pin Definitions ────────────────────────────────────────────────────────
 #define MAX2871_DATA_PIN    6     // SPI MOSI
@@ -63,6 +76,21 @@
 #define RSSI_STREAM_INTERVAL_MS_DEFAULT 100
 #define RSSI_STREAM_INTERVAL_MS_MIN     50
 #define RSSI_STREAM_INTERVAL_MS_MAX   2000
+
+// Four-channel live-VTX scan: proof-of-concept target is 500 Hz per channel.
+// With 4 channels, that means 2000 tuned slots/sec = 500 µs/slot.
+#define SCAN4_NUM_CHANNELS              4
+#define SCAN4_DURATION_S_DEFAULT       10
+#define SCAN4_DURATION_S_MAX         3600
+#define SCAN4_SETTLE_US_DEFAULT       250
+#define SCAN4_SETTLE_US_MIN             0
+#define SCAN4_SETTLE_US_MAX          5000
+#define SCAN4_TARGET_HZ_PER_CHANNEL   500
+#define SCAN4_TARGET_SLOT_US          (1000000UL / (SCAN4_TARGET_HZ_PER_CHANNEL * SCAN4_NUM_CHANNELS))
+#define SCAN4_REPORT_INTERVAL_MS      500
+#define SCAN4_ON_DELTA_ADC             25
+#define SCAN4_OFF_DELTA_ADC            12
+#define SCAN4_RAW_MAX_SAMPLES       30000
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 // REF_IN frequency in MHz (into MAX2871). With R=1 in R2, f_PFD equals this.
@@ -109,6 +137,19 @@ const uint16_t RACEBAND_CHANNELS[] = {
 };
 const uint8_t NUM_CHANNELS = sizeof(RACEBAND_CHANNELS) / sizeof(RACEBAND_CHANNELS[0]);
 
+// FatShark/IRC F-band channels. scan4 defaults to F1-F4 so 5800 MHz is included.
+const uint16_t FBAND_CHANNELS[] = {
+    5740,  // F1
+    5760,  // F2
+    5780,  // F3
+    5800,  // F4
+    5820,  // F5
+    5840,  // F6
+    5860,  // F7
+    5880,  // F8
+};
+const uint8_t NUM_F_CHANNELS = sizeof(FBAND_CHANNELS) / sizeof(FBAND_CHANNELS[0]);
+
 // ─── MAX2871 Default Register Bank ──────────────────────────────────────────
 // Register address is embedded in bits[2:0] of each 32-bit word.
 // Write order is ALWAYS R5 → R4 → R3 → R2 → R1 → R0 (per datasheet).
@@ -140,6 +181,14 @@ uint32_t regs[6] = {
     0x00400005,  // R5 — LD = digital lock detect
 };
 
+// APWR = R4[4:3]. Output power on RFOUTA.
+static const int8_t APWR_DBM[4] = { -4, -1, +2, +5 };
+
+struct __attribute__((packed)) Scan4RawSample {
+    uint32_t t_us;
+    uint16_t slot_adc;  // bits[15:14]=slot 0-3, bits[11:0]=ADC
+};
+
 // ─── State ──────────────────────────────────────────────────────────────────
 uint32_t current_channel = RACEBAND_CHANNELS[0]; // actual RF channel freq (MHz)
 uint32_t current_lo      = 0;                     // what MAX2871 is tuned to (MHz)
@@ -166,6 +215,7 @@ static uint32_t g_rssi_stream_read_count  = 0;
 
 // ─── Prototypes ─────────────────────────────────────────────────────────────
 void    spiWriteWord(uint32_t word);
+void    spiWriteWordFast(uint32_t word);
 bool    checkChip();
 void    runHealthCheck();
 void    initSynth();
@@ -174,11 +224,14 @@ void    setRssiStreamEnabled(bool on);
 void    resetRssiStreamPeakHold();
 void    printRssiStreamPeakLine();
 void    setLO(uint32_t lo_mhz, bool verbose = true);
+void    setLoPower(uint8_t apwr);
 bool    waitForLock(uint32_t timeout_ms, uint32_t *out_lock_ms);
 bool    waitForLockAfterRetune(uint32_t timeout_ms, uint32_t *out_relock_us);
 bool    waitForLockProgramEdgeToHigh(uint32_t timeout_ms, uint32_t *out_us);
 bool    waitForLockTimed(uint32_t timeout_ms, uint32_t *out_us);
 void    runLockBenchmark(uint16_t num_hops);
+void    runFourChannelScan(uint16_t duration_s, uint16_t settle_us, const uint8_t f_channel_indices[SCAN4_NUM_CHANNELS]);
+void    runFourChannelRawCapture(uint16_t duration_s, uint16_t settle_us, const uint8_t f_channel_indices[SCAN4_NUM_CHANNELS]);
 void    setSynthPowered(bool on);
 bool    readLD();
 static uint16_t readRssiAdcRaw();
@@ -375,6 +428,25 @@ void spiWriteWord(uint32_t word) {
     delayMicroseconds(1);
     digitalWrite(MAX2871_LE_PIN, HIGH);
     delayMicroseconds(2);
+    digitalWrite(MAX2871_LE_PIN, LOW);
+}
+
+// Fast path for scan4 only. ESP32 digitalWrite overhead is already far above
+// MAX2871 setup/hold timing, so the conservative per-bit delays are omitted.
+void spiWriteWordFast(uint32_t word) {
+    digitalWrite(MAX2871_LE_PIN,   HIGH);
+    digitalWrite(MAX2871_CLK_PIN,  LOW);
+    digitalWrite(MAX2871_DATA_PIN, LOW);
+    digitalWrite(MAX2871_LE_PIN,   LOW);
+
+    for (int i = 31; i >= 0; i--) {
+        digitalWrite(MAX2871_DATA_PIN, (word >> i) & 1 ? HIGH : LOW);
+        digitalWrite(MAX2871_CLK_PIN, HIGH);
+        digitalWrite(MAX2871_CLK_PIN, LOW);
+    }
+
+    digitalWrite(MAX2871_DATA_PIN, LOW);
+    digitalWrite(MAX2871_LE_PIN, HIGH);
     digitalWrite(MAX2871_LE_PIN, LOW);
 }
 
@@ -604,6 +676,18 @@ static void flushRegsToChip() {
         spiWriteWord(regs[r]);
         delayMicroseconds(100);
     }
+}
+
+void setLoPower(uint8_t apwr) {
+    if (apwr > 3) return;
+
+    regs[4] = (regs[4] & ~(0x3UL << 3)) | ((uint32_t)apwr << 3);
+    spiWriteWord(regs[4]);  // R4 only: APWR update does not retrigger VAS/PLL tuning.
+    delayMicroseconds(100);
+
+    Serial.printf("\n✓ APWR=%u (%+d dBm)  R4=0x%08lX  LD=%s\n\n",
+                  apwr, APWR_DBM[apwr], regs[4],
+                  readLD() ? "LOCKED" : "UNLOCKED");
 }
 
 void setSynthPowered(bool on) {
@@ -859,6 +943,372 @@ void runLockBenchmark(uint16_t num_hops) {
     }
 }
 
+void runFourChannelScan(uint16_t duration_s, uint16_t settle_us, const uint8_t f_channel_indices[SCAN4_NUM_CHANNELS]) {
+    if (duration_s < 1) {
+        duration_s = 1;
+    }
+    if (settle_us > SCAN4_SETTLE_US_MAX) {
+        settle_us = SCAN4_SETTLE_US_MAX;
+    }
+
+    if (((regs[4] >> 3) & 0x3) != 0) {
+        Serial.println("\n→ scan4 setting LO power to w 0 (-4 dBm) per Ravager bring-up notes");
+        setLoPower(0);
+    }
+
+    uint32_t r0_words[SCAN4_NUM_CHANNELS];
+    uint32_t channels[SCAN4_NUM_CHANNELS];
+    uint32_t los[SCAN4_NUM_CHANNELS];
+
+    // Prepare each F-band tune once with the full, safe register path, then use
+    // R0-only writes in the timed loop. F-band scan channels all stay DIVA=0,
+    // MOD=50, frac-N; only N/FRAC in R0 changes per slot.
+    Serial.println("\n→ scan4 precomputing F-band tune words");
+    for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+        uint8_t idx = f_channel_indices[i];
+        channels[i] = FBAND_CHANNELS[idx];
+        los[i] = channels[i] - IF_OFFSET_MHZ;
+        setChannel(channels[i], false);
+        r0_words[i] = regs[0];
+        Serial.printf("  slot %u: F%u %lu MHz → LO %lu MHz  R0=0x%08lX\n",
+                      (unsigned)(i + 1),
+                      (unsigned)(idx + 1),
+                      (unsigned long)channels[i],
+                      (unsigned long)los[i],
+                      (unsigned long)r0_words[i]);
+    }
+
+    Serial.printf("\n── scan4 rapid-hop POC: duration=%u s  settle=%u µs  target=%u Hz/channel (%lu µs/slot) ──\n",
+                  (unsigned)duration_s,
+                  (unsigned)settle_us,
+                  SCAN4_TARGET_HZ_PER_CHANNEL,
+                  (unsigned long)SCAN4_TARGET_SLOT_US);
+    Serial.print("# Listening on:");
+    for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+        uint8_t idx = f_channel_indices[i];
+        Serial.printf(" F%u=%uMHz", idx + 1, FBAND_CHANNELS[idx]);
+    }
+    Serial.println();
+    Serial.println("# Hot loop: F1→F2→F3→F4→F1 until time expires; R0-only PLL writes, no lock wait, no 35 ms RSSI settle.");
+    Serial.println("# No per-sample serial output during the run; summary prints when scan4 completes.");
+    Serial.printf("# Live detection: ON at baseline+%u ADC, OFF at baseline+%u ADC. Start with generators OFF for clean baselines.\n",
+                  SCAN4_ON_DELTA_ADC,
+                  SCAN4_OFF_DELTA_ADC);
+
+    uint16_t min_adc[SCAN4_NUM_CHANNELS];
+    uint16_t max_adc[SCAN4_NUM_CHANNELS];
+    uint64_t sum_adc[SCAN4_NUM_CHANNELS];
+    uint16_t interval_min_adc[SCAN4_NUM_CHANNELS];
+    uint16_t interval_max_adc[SCAN4_NUM_CHANNELS];
+    uint64_t interval_sum_adc[SCAN4_NUM_CHANNELS];
+    uint32_t interval_reads[SCAN4_NUM_CHANNELS];
+    uint16_t baseline_adc[SCAN4_NUM_CHANNELS];
+    uint16_t last_adc[SCAN4_NUM_CHANNELS];
+    uint16_t on_events[SCAN4_NUM_CHANNELS];
+    uint16_t off_events[SCAN4_NUM_CHANNELS];
+    bool signal_on[SCAN4_NUM_CHANNELS];
+    for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+        min_adc[i] = 0xFFFFu;
+        max_adc[i] = 0;
+        sum_adc[i] = 0;
+        interval_min_adc[i] = 0xFFFFu;
+        interval_max_adc[i] = 0;
+        interval_sum_adc[i] = 0;
+        interval_reads[i] = 0;
+        baseline_adc[i] = 0;
+        last_adc[i] = 0;
+        on_events[i] = 0;
+        off_events[i] = 0;
+        signal_on[i] = false;
+    }
+
+    uint32_t total_slots = 0;
+    uint32_t completed_cycles = 0;
+    uint32_t late_slots = 0;
+    uint32_t max_slot_us = 0;
+    uint32_t min_slot_us = 0xFFFFFFFFUL;
+    uint64_t sum_slot_us = 0;
+
+    const uint32_t run_start_ms = millis();
+    const uint32_t run_start_us = micros();
+    const uint32_t run_duration_us = (uint32_t)duration_s * 1000000UL;
+    uint32_t last_report_ms = run_start_ms;
+
+    while ((uint32_t)(micros() - run_start_us) < run_duration_us) {
+        for (uint8_t slot = 0; slot < SCAN4_NUM_CHANNELS; slot++) {
+            const uint32_t slot_start_us = micros();
+
+            spiWriteWordFast(r0_words[slot]);
+            current_channel = channels[slot];
+            current_lo = los[slot];
+
+            if (settle_us > 0) {
+                delayMicroseconds(settle_us);
+            }
+
+            uint16_t adc = analogRead(RSSI_ADC_PIN);
+            if (adc < min_adc[slot]) {
+                min_adc[slot] = adc;
+            }
+            if (adc > max_adc[slot]) {
+                max_adc[slot] = adc;
+            }
+            sum_adc[slot] += adc;
+            last_adc[slot] = adc;
+
+            if (adc < interval_min_adc[slot]) {
+                interval_min_adc[slot] = adc;
+            }
+            if (adc > interval_max_adc[slot]) {
+                interval_max_adc[slot] = adc;
+            }
+            interval_sum_adc[slot] += adc;
+            interval_reads[slot]++;
+
+            if (baseline_adc[slot] == 0) {
+                baseline_adc[slot] = adc;
+            }
+            if (!signal_on[slot]) {
+                if (adc < baseline_adc[slot]) {
+                    baseline_adc[slot] = adc;
+                } else {
+                    // Slowly track floor drift while OFF without chasing short pulses.
+                    baseline_adc[slot] = (uint16_t)(((uint32_t)baseline_adc[slot] * 255UL + adc) / 256UL);
+                }
+
+                if (adc >= (uint16_t)(baseline_adc[slot] + SCAN4_ON_DELTA_ADC)) {
+                    signal_on[slot] = true;
+                    on_events[slot]++;
+                    Serial.printf("# EVENT t=%lu ms F%u ON  adc=%u base=%u delta=%d\n",
+                                  (unsigned long)(millis() - run_start_ms),
+                                  (unsigned)(f_channel_indices[slot] + 1),
+                                  (unsigned)adc,
+                                  (unsigned)baseline_adc[slot],
+                                  (int)adc - (int)baseline_adc[slot]);
+                }
+            } else if (adc <= (uint16_t)(baseline_adc[slot] + SCAN4_OFF_DELTA_ADC)) {
+                signal_on[slot] = false;
+                off_events[slot]++;
+                Serial.printf("# EVENT t=%lu ms F%u OFF adc=%u base=%u delta=%d\n",
+                              (unsigned long)(millis() - run_start_ms),
+                              (unsigned)(f_channel_indices[slot] + 1),
+                              (unsigned)adc,
+                              (unsigned)baseline_adc[slot],
+                              (int)adc - (int)baseline_adc[slot]);
+            }
+
+            uint32_t elapsed_slot_us = micros() - slot_start_us;
+            if (elapsed_slot_us < min_slot_us) {
+                min_slot_us = elapsed_slot_us;
+            }
+            if (elapsed_slot_us > max_slot_us) {
+                max_slot_us = elapsed_slot_us;
+            }
+            sum_slot_us += elapsed_slot_us;
+            if (elapsed_slot_us > SCAN4_TARGET_SLOT_US) {
+                late_slots++;
+            }
+            total_slots++;
+
+            uint32_t now_ms = millis();
+            if ((now_ms - last_report_ms) >= SCAN4_REPORT_INTERVAL_MS) {
+                const uint32_t elapsed_us = micros() - run_start_us;
+                const float aggregate_hz_now = elapsed_us > 0
+                                                   ? ((float)total_slots * 1000000.0f / (float)elapsed_us)
+                                                   : 0.0f;
+                Serial.printf("# scan4 t=%lu ms  %.1f Hz/ch",
+                              (unsigned long)(now_ms - run_start_ms),
+                              aggregate_hz_now / (float)SCAN4_NUM_CHANNELS);
+
+                for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+                    uint32_t mean = interval_reads[i] > 0
+                                        ? (uint32_t)(interval_sum_adc[i] / interval_reads[i])
+                                        : 0;
+                    Serial.printf("  F%u:%s cur=%u min=%u max=%u mean=%lu on/off=%u/%u",
+                                  (unsigned)(f_channel_indices[i] + 1),
+                                  signal_on[i] ? "ON " : "off",
+                                  (unsigned)last_adc[i],
+                                  (unsigned)(interval_min_adc[i] == 0xFFFFu ? 0 : interval_min_adc[i]),
+                                  (unsigned)interval_max_adc[i],
+                                  (unsigned long)mean,
+                                  (unsigned)on_events[i],
+                                  (unsigned)off_events[i]);
+
+                    interval_min_adc[i] = 0xFFFFu;
+                    interval_max_adc[i] = 0;
+                    interval_sum_adc[i] = 0;
+                    interval_reads[i] = 0;
+                }
+                Serial.println();
+                last_report_ms = now_ms;
+            }
+        }
+        completed_cycles++;
+    }
+
+    const uint32_t run_elapsed_us = micros() - run_start_us;
+    const float aggregate_hz = (run_elapsed_us > 0)
+                                   ? ((float)total_slots * 1000000.0f / (float)run_elapsed_us)
+                                   : 0.0f;
+    const float hz_per_channel = aggregate_hz / (float)SCAN4_NUM_CHANNELS;
+    const uint32_t avg_slot_us = total_slots > 0 ? (uint32_t)(sum_slot_us / total_slots) : 0;
+
+    Serial.println("# Summary CSV: slot,f_channel,channel_mhz,lo_mhz,min_adc,max_adc,mean_adc,mv_at_mean,baseline_adc,on_events,off_events,final_state");
+    for (uint8_t slot = 0; slot < SCAN4_NUM_CHANNELS; slot++) {
+        uint8_t idx = f_channel_indices[slot];
+        uint32_t mean_adc = completed_cycles > 0 ? (uint32_t)(sum_adc[slot] / completed_cycles) : 0;
+        int mean_mv = (int)(mean_adc * 3300UL / 4095UL);
+        Serial.printf("%u,F%u,%lu,%lu,%u,%u,%lu,%d,%u,%u,%u,%s\n",
+                      (unsigned)(slot + 1),
+                      (unsigned)(idx + 1),
+                      (unsigned long)channels[slot],
+                      (unsigned long)los[slot],
+                      (unsigned)min_adc[slot],
+                      (unsigned)max_adc[slot],
+                      (unsigned long)mean_adc,
+                      mean_mv,
+                      (unsigned)baseline_adc[slot],
+                      (unsigned)on_events[slot],
+                      (unsigned)off_events[slot],
+                      signal_on[slot] ? "ON" : "OFF");
+    }
+
+    Serial.printf("── scan4 timing: cycles=%lu  slots=%lu  elapsed=%lu µs  aggregate=%.1f slots/s  per_channel=%.1f Hz  target=%u Hz/channel ──\n",
+                  (unsigned long)completed_cycles,
+                  (unsigned long)total_slots,
+                  (unsigned long)run_elapsed_us,
+                  aggregate_hz,
+                  hz_per_channel,
+                  SCAN4_TARGET_HZ_PER_CHANNEL);
+    Serial.printf("── slot work time: avg=%lu µs  min=%lu µs  max=%lu µs  late_slots=%lu/%lu  result=%s ──\n\n",
+                  (unsigned long)avg_slot_us,
+                  (unsigned long)min_slot_us,
+                  (unsigned long)max_slot_us,
+                  (unsigned long)late_slots,
+                  (unsigned long)total_slots,
+                  hz_per_channel >= (float)SCAN4_TARGET_HZ_PER_CHANNEL ? "PASS" : "MISS");
+}
+
+void runFourChannelRawCapture(uint16_t duration_s, uint16_t settle_us, const uint8_t f_channel_indices[SCAN4_NUM_CHANNELS]) {
+    if (duration_s < 1) {
+        duration_s = 1;
+    }
+    if (settle_us > SCAN4_SETTLE_US_MAX) {
+        settle_us = SCAN4_SETTLE_US_MAX;
+    }
+
+    if (((regs[4] >> 3) & 0x3) != 0) {
+        Serial.println("\n→ scan4raw setting LO power to w 0 (-4 dBm)");
+        setLoPower(0);
+    }
+
+    Scan4RawSample *samples = (Scan4RawSample *)malloc(sizeof(Scan4RawSample) * SCAN4_RAW_MAX_SAMPLES);
+    if (!samples) {
+        Serial.printf("\n✗ scan4raw could not allocate %lu bytes for raw capture\n\n",
+                      (unsigned long)(sizeof(Scan4RawSample) * SCAN4_RAW_MAX_SAMPLES));
+        return;
+    }
+
+    uint32_t r0_words[SCAN4_NUM_CHANNELS];
+    uint32_t channels[SCAN4_NUM_CHANNELS];
+    uint32_t los[SCAN4_NUM_CHANNELS];
+
+    Serial.println("\n→ scan4raw precomputing F-band tune words");
+    for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+        uint8_t idx = f_channel_indices[i];
+        channels[i] = FBAND_CHANNELS[idx];
+        los[i] = channels[i] - IF_OFFSET_MHZ;
+        setChannel(channels[i], false);
+        r0_words[i] = regs[0];
+        Serial.printf("  slot %u: F%u %lu MHz → LO %lu MHz\n",
+                      (unsigned)(i + 1),
+                      (unsigned)(idx + 1),
+                      (unsigned long)channels[i],
+                      (unsigned long)los[i]);
+    }
+
+    Serial.printf("\n── scan4raw capture: duration=%u s  settle=%u µs  max_samples=%lu ──\n",
+                  (unsigned)duration_s,
+                  (unsigned)settle_us,
+                  (unsigned long)SCAN4_RAW_MAX_SAMPLES);
+    Serial.println("# Capturing raw samples to RAM; CSV dumps after capture completes.");
+
+    uint32_t count = 0;
+    uint32_t dropped = 0;
+    uint32_t total_slots = 0;
+    uint32_t max_slot_us = 0;
+    uint32_t min_slot_us = 0xFFFFFFFFUL;
+    uint64_t sum_slot_us = 0;
+
+    const uint32_t run_start_us = micros();
+    const uint32_t run_duration_us = (uint32_t)duration_s * 1000000UL;
+
+    while ((uint32_t)(micros() - run_start_us) < run_duration_us) {
+        for (uint8_t slot = 0; slot < SCAN4_NUM_CHANNELS; slot++) {
+            const uint32_t slot_start_us = micros();
+
+            spiWriteWordFast(r0_words[slot]);
+            current_channel = channels[slot];
+            current_lo = los[slot];
+
+            if (settle_us > 0) {
+                delayMicroseconds(settle_us);
+            }
+
+            uint16_t adc = analogRead(RSSI_ADC_PIN) & 0x0FFFu;
+            if (count < SCAN4_RAW_MAX_SAMPLES) {
+                samples[count].t_us = micros() - run_start_us;
+                samples[count].slot_adc = (uint16_t)(((uint16_t)slot << 14) | adc);
+                count++;
+            } else {
+                dropped++;
+            }
+
+            uint32_t elapsed_slot_us = micros() - slot_start_us;
+            if (elapsed_slot_us < min_slot_us) {
+                min_slot_us = elapsed_slot_us;
+            }
+            if (elapsed_slot_us > max_slot_us) {
+                max_slot_us = elapsed_slot_us;
+            }
+            sum_slot_us += elapsed_slot_us;
+            total_slots++;
+        }
+    }
+
+    const uint32_t run_elapsed_us = micros() - run_start_us;
+    const float aggregate_hz = run_elapsed_us > 0
+                                   ? ((float)total_slots * 1000000.0f / (float)run_elapsed_us)
+                                   : 0.0f;
+    const uint32_t avg_slot_us = total_slots > 0 ? (uint32_t)(sum_slot_us / total_slots) : 0;
+
+    Serial.println("# SCAN4RAW_BEGIN");
+    Serial.println("time_us,slot,f_channel,channel_mhz,lo_mhz,adc");
+    for (uint32_t i = 0; i < count; i++) {
+        uint8_t slot = (samples[i].slot_adc >> 14) & 0x3;
+        uint16_t adc = samples[i].slot_adc & 0x0FFFu;
+        uint8_t f_idx = f_channel_indices[slot];
+        Serial.printf("%lu,%u,F%u,%lu,%lu,%u\n",
+                      (unsigned long)samples[i].t_us,
+                      (unsigned)(slot + 1),
+                      (unsigned)(f_idx + 1),
+                      (unsigned long)channels[slot],
+                      (unsigned long)los[slot],
+                      (unsigned)adc);
+    }
+    Serial.printf("# SCAN4RAW_END samples=%lu dropped=%lu elapsed_us=%lu aggregate_hz=%.1f per_channel_hz=%.1f avg_slot_us=%lu min_slot_us=%lu max_slot_us=%lu\n\n",
+                  (unsigned long)count,
+                  (unsigned long)dropped,
+                  (unsigned long)run_elapsed_us,
+                  aggregate_hz,
+                  aggregate_hz / (float)SCAN4_NUM_CHANNELS,
+                  (unsigned long)avg_slot_us,
+                  (unsigned long)min_slot_us,
+                  (unsigned long)max_slot_us);
+
+    free(samples);
+}
+
 // ─── Commands ────────────────────────────────────────────────────────────────
 void processCommand(String cmd) {
     cmd.trim();
@@ -981,6 +1431,14 @@ void processCommand(String cmd) {
             Serial.println("\n✗ i <ms> — use 200–60000\n");
         }
     }
+    else if (cmdLower.startsWith("w ")) {
+        int v = cmd.substring(2).toInt();
+        if (v >= 0 && v <= 3) {
+            setLoPower((uint8_t)v);
+        } else {
+            Serial.println("\n✗ w <0-3>  APWR: 0=-4 dBm  1=-1 dBm  2=+2 dBm  3=+5 dBm\n");
+        }
+    }
     else if (cmdLower == "b" || cmdLower.startsWith("b ")) {
         if (!g_synth_powered) {
             Serial.println("\n✗ Synth is shut down — type `p` to enable before benchmark.\n");
@@ -998,6 +1456,117 @@ void processCommand(String cmd) {
             Serial.println("\n→ AUTO-CYCLE DISABLED (benchmark)");
         }
         runLockBenchmark(n);
+    }
+    else if (cmdLower == "scan4raw" || cmdLower.startsWith("scan4raw ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable before scan4raw.\n");
+            return;
+        }
+
+        char op[16] = {0};
+        int duration_arg = SCAN4_DURATION_S_DEFAULT;
+        int settle_arg = SCAN4_SETTLE_US_DEFAULT;
+        int ch_arg[SCAN4_NUM_CHANNELS] = {1, 2, 3, 4};
+        int parsed = sscanf(cmd.c_str(), "%15s %d %d %d %d %d %d",
+                            op,
+                            &duration_arg,
+                            &settle_arg,
+                            &ch_arg[0],
+                            &ch_arg[1],
+                            &ch_arg[2],
+                            &ch_arg[3]);
+
+        if (parsed >= 2 && (duration_arg < 1 || duration_arg > SCAN4_DURATION_S_MAX)) {
+            Serial.printf("\n✗ scan4raw duration_s must be 1–%d\n\n", SCAN4_DURATION_S_MAX);
+            return;
+        }
+        if (parsed >= 3 && (settle_arg < SCAN4_SETTLE_US_MIN || settle_arg > SCAN4_SETTLE_US_MAX)) {
+            Serial.printf("\n✗ scan4raw settle_us must be %d–%d\n\n",
+                          SCAN4_SETTLE_US_MIN,
+                          SCAN4_SETTLE_US_MAX);
+            return;
+        }
+        if (parsed > 3 && parsed < 7) {
+            Serial.println("\n✗ scan4raw channel list requires exactly four F-band numbers: scan4raw 10 250 1 3 4 7\n");
+            return;
+        }
+
+        uint8_t f_channel_indices[SCAN4_NUM_CHANNELS] = {0, 1, 2, 3};
+        if (parsed >= 7) {
+            for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+                if (ch_arg[i] < 1 || ch_arg[i] > NUM_F_CHANNELS) {
+                    Serial.printf("\n✗ scan4raw channels must be F-band numbers 1–%d\n\n", NUM_F_CHANNELS);
+                    return;
+                }
+                f_channel_indices[i] = (uint8_t)(ch_arg[i] - 1);
+            }
+        }
+
+        if (g_rssi_stream_enabled) {
+            setRssiStreamEnabled(false);
+        }
+        if (auto_cycle_enabled) {
+            auto_cycle_enabled = false;
+            Serial.println("\n→ AUTO-CYCLE DISABLED (scan4raw)");
+        }
+
+        runFourChannelRawCapture((uint16_t)duration_arg, (uint16_t)settle_arg, f_channel_indices);
+    }
+    else if (cmdLower == "scan4" || cmdLower.startsWith("scan4 ")
+             || cmdLower == "q" || cmdLower.startsWith("q ")) {
+        if (!g_synth_powered) {
+            Serial.println("\n✗ Synth is shut down — type `p` to enable before scan4.\n");
+            return;
+        }
+
+        char op[16] = {0};
+        int duration_arg = SCAN4_DURATION_S_DEFAULT;
+        int settle_arg = SCAN4_SETTLE_US_DEFAULT;
+        int ch_arg[SCAN4_NUM_CHANNELS] = {1, 2, 3, 4};
+        int parsed = sscanf(cmd.c_str(), "%15s %d %d %d %d %d %d",
+                            op,
+                            &duration_arg,
+                            &settle_arg,
+                            &ch_arg[0],
+                            &ch_arg[1],
+                            &ch_arg[2],
+                            &ch_arg[3]);
+
+        if (parsed >= 2 && (duration_arg < 1 || duration_arg > SCAN4_DURATION_S_MAX)) {
+            Serial.printf("\n✗ scan4 duration_s must be 1–%d\n\n", SCAN4_DURATION_S_MAX);
+            return;
+        }
+        if (parsed >= 3 && (settle_arg < SCAN4_SETTLE_US_MIN || settle_arg > SCAN4_SETTLE_US_MAX)) {
+            Serial.printf("\n✗ scan4 settle_us must be %d–%d\n\n",
+                          SCAN4_SETTLE_US_MIN,
+                          SCAN4_SETTLE_US_MAX);
+            return;
+        }
+        if (parsed > 3 && parsed < 7) {
+            Serial.println("\n✗ scan4 channel list requires exactly four F-band numbers: scan4 10 250 1 3 4 7\n");
+            return;
+        }
+
+        uint8_t f_channel_indices[SCAN4_NUM_CHANNELS] = {0, 1, 2, 3};
+        if (parsed >= 7) {
+            for (uint8_t i = 0; i < SCAN4_NUM_CHANNELS; i++) {
+                if (ch_arg[i] < 1 || ch_arg[i] > NUM_F_CHANNELS) {
+                    Serial.printf("\n✗ scan4 channels must be F-band numbers 1–%d\n\n", NUM_F_CHANNELS);
+                    return;
+                }
+                f_channel_indices[i] = (uint8_t)(ch_arg[i] - 1);
+            }
+        }
+
+        if (g_rssi_stream_enabled) {
+            setRssiStreamEnabled(false);
+        }
+        if (auto_cycle_enabled) {
+            auto_cycle_enabled = false;
+            Serial.println("\n→ AUTO-CYCLE DISABLED (four-channel scan)");
+        }
+
+        runFourChannelScan((uint16_t)duration_arg, (uint16_t)settle_arg, f_channel_indices);
     }
     else if (cmdLower == "sweep" || cmdLower.startsWith("sweep ")) {
         if (!g_synth_powered) {
@@ -1125,6 +1694,10 @@ void showStatus() {
                   g_lock_timing_mode == LOCK_TIMING_PROGRAM_EDGE
                       ? "setLO end → LD HIGH (m 1)"
                       : "strict LD LOW→HIGH (m 0)");
+    {
+        uint8_t apwr = (regs[4] >> 3) & 0x3;
+        Serial.printf("  LO power:   APWR=%u (%+d dBm)\n", apwr, APWR_DBM[apwr]);
+    }
     Serial.printf("  Uptime:     %lu s\n", millis() / 1000);
     Serial.println();
     Serial.println("  Raceband Channels:");
@@ -1133,6 +1706,14 @@ void showStatus() {
                       i + 1, RACEBAND_CHANNELS[i],
                       RACEBAND_CHANNELS[i] - IF_OFFSET_MHZ,
                       (RACEBAND_CHANNELS[i] == current_channel) ? "  ← active" : "");
+    }
+    Serial.println();
+    Serial.println("  F-band Channels (scan4):");
+    for (int i = 0; i < NUM_F_CHANNELS; i++) {
+        Serial.printf("    F%d: %d MHz  →  LO %d MHz%s\n",
+                      i + 1, FBAND_CHANNELS[i],
+                      FBAND_CHANNELS[i] - IF_OFFSET_MHZ,
+                      (FBAND_CHANNELS[i] == current_channel) ? "  ← active" : "");
     }
     Serial.println();
     Serial.println("  Register Bank (as last written):");
@@ -1177,7 +1758,19 @@ void showHelp() {
     Serial.println("  m <0|1>   Lock timing: 0=strict (LOW→HIGH)  1=setLO end→HIGH");
     Serial.println("  t <ms>    Hop / fast re-lock timeout (10–5000), default 150");
     Serial.println("  i <ms>    Initial timeout for boot & manual f/c (200–60000), default 3000");
+    Serial.println("  w <0-3>   LO output power (APWR): 0=-4  1=-1  2=+2  3=+5 dBm");
     Serial.println("  b [n]     Benchmark n hops — min/avg/max µs (follows m)");
+    Serial.println("  scan4 [duration_s] [settle_us] [f1 f2 f3 f4]");
+    Serial.println("            500 Hz/channel F-band rapid-hop POC; forces w 0 first");
+    Serial.println("            Typing only `scan4` uses the default below");
+    Serial.println("            Default: scan4 10 250 1 2 3 4  (F4 = 5800 MHz)");
+    Serial.println("            Compact 2 Hz live status + ON/OFF event lines, summary after run");
+    Serial.println("            Example: scan4 60 150 1 3 4 7");
+    Serial.println();
+    Serial.println("  scan4raw [duration_s] [settle_us] [f1 f2 f3 f4]");
+    Serial.println("            Raw sample capture; stores in RAM, dumps CSV after timing run");
+    Serial.println("            Use scripts/capture_scan4raw.py to save to scan4.csv");
+    Serial.println("            Default: scan4raw 10 250 1 2 3 4");
     Serial.println();
     Serial.println("  sweep [freq] [ms]  Generator-sweep RSSI CSV stream (peak-hold)");
     Serial.println("            sweep              Toggle stream at current channel");
@@ -1204,6 +1797,13 @@ void showHelp() {
         Serial.printf("  R%d: %d MHz  →  LO %d MHz\n",
                       i + 1, RACEBAND_CHANNELS[i],
                       RACEBAND_CHANNELS[i] - IF_OFFSET_MHZ);
+    }
+    Serial.println();
+    Serial.println("F-BAND → LO MAPPING:");
+    for (int i = 0; i < NUM_F_CHANNELS; i++) {
+        Serial.printf("  F%d: %d MHz  →  LO %d MHz\n",
+                      i + 1, FBAND_CHANNELS[i],
+                      FBAND_CHANNELS[i] - IF_OFFSET_MHZ);
     }
     Serial.println();
     Serial.printf("  IF_OFFSET_MHZ = %d  (set in source)\n", IF_OFFSET_MHZ);
