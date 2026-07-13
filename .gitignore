@@ -1,5 +1,6 @@
 # PlatformIO
 .pio
+.platformio/
 .pioenvs
 .piolibdeps
 .vscode/
