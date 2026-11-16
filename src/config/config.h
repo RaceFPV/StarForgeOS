@@ -5,7 +5,7 @@
 // OTA job document all compare against this. It must match the GitHub release
 // tag without the leading v. The v2.0.1 asset on main has no MQTT client; the
 // image has to be built from a tree that contains the OTA client.
-#define SF_FW_VERSION "2.0.3"
+#define SF_FW_VERSION "2.0.4"
 
 // Hardware pin definitions - board-specific
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
