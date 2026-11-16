@@ -1,6 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// Single firmware version. The RotorHazard string and the AWS shadow both use this.
+#define SF_FW_VERSION "1.0.0"
+
 // Hardware pin definitions - board-specific
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
     // ESP32-C6 (WiFi 6, single-core RISC-V)

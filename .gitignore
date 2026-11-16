@@ -56,6 +56,7 @@ desktop.ini
 secrets.h
 credentials.h
 config_local.h
+data/aws/
 
 # Flash Tool (Electron app)
 flash_tool/node_modules/

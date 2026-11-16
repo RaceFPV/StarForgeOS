@@ -566,7 +566,7 @@ void Message::handleReadCommand(bool serialFlag) {
                     }
                 } else {
                     // Fallback: use "ESP32_1.0.0" format
-                    const char* version = "ESP32_1.0.0";
+                    const char* version = "ESP32_" SF_FW_VERSION;
                     for (int i = 0; i < 16; i++) {
                         buffer.write8(i < strlen(version) ? version[i] : 0);
                     }

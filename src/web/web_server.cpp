@@ -112,6 +112,57 @@ WebServerManager::WebServerManager() : _server(80), _timingCore(nullptr),
     // Constructor
 }
 
+void WebServerManager::mountSpiffs() {
+    if (_spiffsAttempted) {
+        return;
+    }
+    _spiffsAttempted = true;
+
+    // Initialize SPIFFS for serving static files. One begin() for the process.
+    bool spiffsMounted = false;
+    if (SPIFFS.begin(false)) {
+        spiffsMounted = true;
+    } else {
+        spiffsMounted = SPIFFS.begin(true);
+    }
+
+    if (!spiffsMounted) {
+        Serial.println("Warning: SPIFFS Mount Failed (index.html won't be available, but API will work)");
+    } else {
+        Serial.println("SPIFFS mounted successfully");
+
+        // Get SPIFFS partition info
+        size_t totalBytes = SPIFFS.totalBytes();
+        size_t usedBytes = SPIFFS.usedBytes();
+        Serial.printf("SPIFFS Partition: %d bytes total, %d bytes used, %d bytes free\n",
+                     totalBytes, usedBytes, totalBytes - usedBytes);
+
+        // Debug: List all files in SPIFFS
+        Serial.println("=== SPIFFS Contents ===");
+        File root = SPIFFS.open("/");
+        if (!root) {
+            Serial.println("ERROR: Failed to open SPIFFS root directory");
+        } else if (!root.isDirectory()) {
+            Serial.println("ERROR: SPIFFS root is not a directory");
+        } else {
+            File file = root.openNextFile();
+            int fileCount = 0;
+            while (file) {
+                Serial.printf("  File: %s, Size: %d bytes\n", file.name(), file.size());
+                fileCount++;
+                file = root.openNextFile();
+            }
+            if (fileCount == 0) {
+                Serial.println("  WARNING: SPIFFS is empty! No files found.");
+                Serial.println("  This means SPIFFS was not uploaded correctly or partition is empty.");
+            } else {
+                Serial.printf("Total files: %d\n", fileCount);
+            }
+        }
+        Serial.println("======================");
+    }
+}
+
 void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsManager,
                               bool* raceActive, uint32_t* raceStartTime, std::vector<LapData>* laps) {
     _timingCore = timingCore;
@@ -161,49 +212,7 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
         Serial.println("Warning: Error setting up mDNS responder (not critical)");
     }
 
-    // Initialize SPIFFS for serving static files
-    bool spiffsMounted = false;
-    if (SPIFFS.begin(false)) {
-        spiffsMounted = true;
-    } else {
-        spiffsMounted = SPIFFS.begin(true);
-    }
-
-    if (!spiffsMounted) {
-        Serial.println("Warning: SPIFFS Mount Failed (index.html won't be available, but API will work)");
-    } else {
-        Serial.println("SPIFFS mounted successfully");
-
-        // Get SPIFFS partition info
-        size_t totalBytes = SPIFFS.totalBytes();
-        size_t usedBytes = SPIFFS.usedBytes();
-        Serial.printf("SPIFFS Partition: %d bytes total, %d bytes used, %d bytes free\n",
-                     totalBytes, usedBytes, totalBytes - usedBytes);
-
-        // Debug: List all files in SPIFFS
-        Serial.println("=== SPIFFS Contents ===");
-        File root = SPIFFS.open("/");
-        if (!root) {
-            Serial.println("ERROR: Failed to open SPIFFS root directory");
-        } else if (!root.isDirectory()) {
-            Serial.println("ERROR: SPIFFS root is not a directory");
-        } else {
-            File file = root.openNextFile();
-            int fileCount = 0;
-            while (file) {
-                Serial.printf("  File: %s, Size: %d bytes\n", file.name(), file.size());
-                fileCount++;
-                file = root.openNextFile();
-            }
-            if (fileCount == 0) {
-                Serial.println("  WARNING: SPIFFS is empty! No files found.");
-                Serial.println("  This means SPIFFS was not uploaded correctly or partition is empty.");
-            } else {
-                Serial.printf("Total files: %d\n", fileCount);
-            }
-        }
-        Serial.println("======================");
-    }
+    mountSpiffs();
 
     // CRITICAL: Additional delay to ensure TCP/IP task is fully ready
     // The TCP/IP stack needs time to initialize its internal structures

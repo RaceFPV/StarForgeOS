@@ -29,7 +29,7 @@
 #endif
 
 // Global firmware version strings (for compatibility with RotorHazard server)
-const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32_1.0.0";
+const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32_" SF_FW_VERSION;
 const char *firmwareBuildDateString = "FIRMWARE_BUILDDATE: " __DATE__;
 const char *firmwareBuildTimeString = "FIRMWARE_BUILDTIME: " __TIME__;
 const char *firmwareProcTypeString = "FIRMWARE_PROCTYPE: ESP32";

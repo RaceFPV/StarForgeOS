@@ -3,6 +3,9 @@
 #include "settings/settings_manager.h"
 #include "settings/wifi_manager.h"
 #include "web/web_server.h"
+#include "aws/aws_iot.h"
+#include "aws/fs_creds.h"
+#include "aws/telemetry.h"
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
 #include "hardware/battery_monitor.h"
@@ -112,6 +115,17 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _timingCore->allocateRSSIHistory();
 #endif
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // One SPIFFS mount, then read credentials on this thread before anyone serves files.
+    static SfAwsCreds aws_creds;
+    const SfAwsCreds *aws_creds_ptr = nullptr;
+    _webServer->mountSpiffs();
+    sf_telemetry_boot();
+    if (sf_fs_creds_load(&aws_creds)) {
+        aws_creds_ptr = &aws_creds;
+    }
+#endif
+
     // Initialize web server
     _webServer->begin(_timingCore, _settingsManager, &_raceActive, &_raceStartTime, &_laps);
 
@@ -183,9 +197,25 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 #endif
 
     Serial.println("Setup complete!");
+
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Buffers in aws_creds live for the process. The task does not touch SPIFFS.
+    sf_aws_start(aws_creds_ptr);
+#endif
 }
 
 void StandaloneMode::process() {
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Both the LCD stop button and /api/stop_race only clear _raceActive.
+    {
+        static bool was_active = false;
+        if (was_active && !_raceActive) {
+            sf_usage_race_completed(static_cast<uint32_t>(_laps.size()));
+        }
+        was_active = _raceActive;
+    }
+#endif
+
     // mDNS handles requests automatically in background
 
     // Check for new lap data - only record during active race

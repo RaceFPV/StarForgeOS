@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Pre-commit guard for a PUBLIC repository.
+#
+# StarForgeOS is open source, so a committed credential is not a mistake you can
+# revert - it is a credential that is public within minutes and must be revoked.
+# This hook makes the two realistic accidents impossible:
+#
+#   1. the AWS device key or the credential bundle gets staged by a broad
+#      `git add -A` after a provisioning run;
+#   2. a secret gets pasted into a source file, a doc, or a test.
+#
+# Paths are checked, and staged CONTENT is checked - because a public certificate
+# is fine to commit (BEGIN CERTIFICATE) while a private key never is (BEGIN ...
+# PRIVATE KEY), and only content can tell them apart.
+
+set -uo pipefail
+
+fail=0
+note() { printf '  %s\n' "$*" >&2; }
+
+# --- 1. paths that must never be committed -----------------------------------
+blocked_paths=$(git diff --cached --name-only --diff-filter=ACMR | grep -E \
+  '(^|/)(data/aws|secrets)/|\.key$|\.p12$|\.pfx$|spiffs\.bin$|(^|/)\.env(\.|$)|backend\.hcl$' || true)
+
+if [ -n "$blocked_paths" ]; then
+  echo "commit refused: credential-shaped path staged" >&2
+  printf '%s\n' "$blocked_paths" | sed 's/^/  /' >&2
+  note "these are device keys or provisioning bundles - remove them with:"
+  note "  git reset HEAD <file>"
+  fail=1
+fi
+
+# --- 2. staged content that must never be committed --------------------------
+staged_diff=$(git diff --cached --diff-filter=ACMR)
+
+check_content() {
+  local label="$1" pattern="$2"
+  local hits
+  hits=$(printf '%s' "$staged_diff" | grep -nE "$pattern" | head -5 || true)
+  if [ -n "$hits" ]; then
+    echo "commit refused: $label found in staged content" >&2
+    printf '%s\n' "$hits" | sed 's/^/  /' >&2
+    fail=1
+  fi
+}
+
+check_content "a private key"            'BEGIN [A-Z ]*PRIVATE KEY'
+check_content "a GitHub token"           '(ghp|gho|ghu|ghs)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'
+check_content "an AWS access key id"     'AKIA[0-9A-Z]{16}'
+check_content "an AWS account id in ARN" 'arn:aws:[a-z0-9-]+:[a-z0-9-]*:[0-9]{12}'
+
+# --- 3. report ---------------------------------------------------------------
+if [ "$fail" -ne 0 ]; then
+  echo >&2
+  echo "Nothing was committed. If this is a false positive (for example a public" >&2
+  echo "certificate, which is fine), bypass deliberately with:" >&2
+  echo "  git commit --no-verify" >&2
+  echo "Do that only when you are certain what the file contains." >&2
+  exit 1
+fi
+
+exit 0

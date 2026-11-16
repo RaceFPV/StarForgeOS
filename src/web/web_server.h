@@ -16,6 +16,11 @@ class WebServerManager {
 public:
     WebServerManager();
 
+    // Mount SPIFFS once. begin() calls this if it has not run yet.
+    // Standalone mode calls it first so credential files can be read
+    // before the server accepts requests.
+    void mountSpiffs();
+
     // Initialize web server with routes and start listening
     // Must be called after WiFi AP is up
     void begin(TimingCore* timingCore, SettingsManager* settingsManager,
@@ -29,6 +34,7 @@ public:
 
 private:
     AsyncWebServer _server;
+    bool _spiffsAttempted = false;
     TimingCore* _timingCore;
     SettingsManager* _settingsManager;
 
