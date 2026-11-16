@@ -2,10 +2,10 @@
 #define CONFIG_H
 
 // Single firmware version. The RotorHazard string, the AWS shadow, and the
-// OTA job document all compare against this. The GitHub release tagged
-// v2.0.1 was built from main and has no MQTT client; an update has to be an
-// image built from this tree.
-#define SF_FW_VERSION "2.0.1"
+// OTA job document all compare against this. It must match the GitHub release
+// tag without the leading v. The v2.0.1 asset on main has no MQTT client; the
+// image has to be built from a tree that contains the OTA client.
+#define SF_FW_VERSION "2.0.3"
 
 // Hardware pin definitions - board-specific
 #if defined(CONFIG_IDF_TARGET_ESP32C6)

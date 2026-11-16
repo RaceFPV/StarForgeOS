@@ -203,11 +203,30 @@ jobs:
             cd ..
           fi
         done
+        # Fleet ingest skips a GitHub release that has no ota.json asset.
+        # Only the touch image contains the OTA client, so name that zip.
+        # A prerelease stays a candidate; a final release is the promoted channel.
+        if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+          CHANNEL=candidate
+        else
+          CHANNEL=released
+        fi
+        cat > ota.json << EOF
+{
+  "board": "racefpv-vtx",
+  "hw_gen": "esp32s3",
+  "channel": "$CHANNEL",
+  "asset": "StarForge-esp32-s3-touch.zip",
+  "inner": "firmware.bin"
+}
+EOF
     
     - name: Upload to release
       uses: softprops/action-gh-release@v1
       with:
-        files: all-firmware/*.zip
+        files: |
+          all-firmware/*.zip
+          all-firmware/ota.json
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
