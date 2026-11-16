@@ -6,6 +6,7 @@
 #include "aws/aws_iot.h"
 #include "aws/fs_creds.h"
 #include "aws/telemetry.h"
+#include "aws/ota.h"
 #include "net/wifi_sta.h"
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
@@ -214,6 +215,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 
 void StandaloneMode::process() {
 #if defined(BOARD_ESP32_S3_TOUCH)
+    sf_ota_service_tick(_raceActive);
     sf_wifi_sta_poll(_raceActive);
     // Both the LCD stop button and /api/stop_race only clear _raceActive.
     {

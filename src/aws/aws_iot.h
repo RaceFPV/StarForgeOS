@@ -8,4 +8,12 @@
 // allocated for the process lifetime. The task does not touch SPIFFS.
 void sf_aws_start(const SfAwsCreds *creds);
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+// Root CA already loaded for MQTT. The OTA download uses the same PEM so
+// verification stays on. Null if credentials were not loaded.
+const char *sf_aws_root_ca(void);
+int sf_aws_publish_qos1(void *client, const char *topic, const char *payload);
+bool sf_aws_puback_is(int msg_id);
+#endif
+
 #endif

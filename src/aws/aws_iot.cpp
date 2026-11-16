@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "telemetry.h"
+#include "ota.h"
 #include "mqtt_client.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -61,6 +62,12 @@ static void mqtt_event(void *arg, esp_event_base_t base, int32_t event_id, void 
                 s_pub_ack.store(event->msg_id);
             }
             break;
+        case MQTT_EVENT_DATA:
+            if (event) {
+                sf_ota_on_mqtt_data(event->topic, event->topic_len, event->data, event->data_len,
+                                    event->total_data_len, event->current_data_offset);
+            }
+            break;
         default:
             break;
     }
@@ -95,12 +102,18 @@ static void publish_once(esp_mqtt_client_handle_t client) {
 }
 
 static void session(esp_mqtt_client_handle_t client) {
+    bool shadow_sent = false;
     int64_t last_pub_us = -kPublishIntervalUs;
+    sf_ota_on_mqtt_connect(client, s_creds->thing_name);
     while (s_up.load()) {
         int64_t now = esp_timer_get_time();
         if (now - last_pub_us >= kPublishIntervalUs) {
             publish_once(client);
             last_pub_us = esp_timer_get_time();
+            shadow_sent = true;
+        }
+        if (shadow_sent) {
+            sf_ota_poll(client);
         }
 
         if (!s_events) {
@@ -112,6 +125,7 @@ static void session(esp_mqtt_client_handle_t client) {
             break;
         }
     }
+    sf_ota_on_mqtt_disconnect();
 }
 
 static bool start_client(esp_mqtt_client_handle_t *client, bool *running) {
@@ -177,6 +191,10 @@ static void aws_task(void *param) {
     cfg.network.disable_auto_reconnect = true;
     cfg.task.priority = 5;
     cfg.task.stack_size = 8192;
+    // A job document carries a presigned URL. The default 1 KB MQTT buffer
+    // splits or drops it. This is not the firmware image.
+    cfg.buffer.size = 8192;
+    cfg.buffer.out_size = 2048;
 
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&cfg);
     if (!client) {
@@ -232,6 +250,26 @@ static void aws_task(void *param) {
     vTaskDelete(nullptr);
 }
 
+const char *sf_aws_root_ca(void) {
+    if (!s_creds || !s_creds->ca_pem) {
+        return nullptr;
+    }
+    return s_creds->ca_pem;
+}
+
+int sf_aws_publish_qos1(void *client, const char *topic, const char *payload) {
+    if (!client || !topic || !payload) {
+        return -1;
+    }
+    s_pub_ack.store(-1);
+    return esp_mqtt_client_publish(static_cast<esp_mqtt_client_handle_t>(client), topic, payload,
+                                   static_cast<int>(strlen(payload)), 1, 0);
+}
+
+bool sf_aws_puback_is(int msg_id) {
+    return msg_id >= 0 && s_pub_ack.load() == msg_id;
+}
+
 void sf_aws_start(const SfAwsCreds *creds) {
     static bool started = false;
     if (started) {
@@ -240,7 +278,9 @@ void sf_aws_start(const SfAwsCreds *creds) {
     started = true;
     s_creds = creds;
 
-    BaseType_t ok = xTaskCreatePinnedToCore(aws_task, "sf_aws", 8192, nullptr, 5, nullptr, 0);
+    // The HTTPS download and its TLS handshake run on this task, after the
+    // shadow publish. 8192 is the MQTT library task; this one needs more.
+    BaseType_t ok = xTaskCreatePinnedToCore(aws_task, "sf_aws", 24576, nullptr, 5, nullptr, 0);
     if (ok != pdPASS) {
         started = false;
         Serial.println("AWS MQTT task not started");
