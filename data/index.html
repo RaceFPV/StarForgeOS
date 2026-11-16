@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>StarForge Race Timer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/style.css?v=5">
+    <link rel="stylesheet" href="/style.css?v=6">
 </head>
 <body>
     <div class="container">
@@ -67,6 +67,22 @@
                 <div class="config-row">
                     <div class="config-item" style="opacity: 0.7; font-size: 0.9em;">
                         <label>Note: Enter RSSI should be higher than Exit RSSI</label>
+                    </div>
+                </div>
+                <div class="config-row" id="wifiUpdateSection">
+                    <div class="config-item">
+                        <div class="wifi-update-title">Wireless firmware updates</div>
+                        <p class="wifi-update-help">Connect this timer to your Wi-Fi so it can check for firmware updates. Race timing works fine without it.</p>
+                        <label for="wifiSsid">Network name</label>
+                        <input type="text" id="wifiSsid" maxlength="32" autocomplete="off" spellcheck="false">
+                        <label for="wifiPass">Password</label>
+                        <input type="password" id="wifiPass" maxlength="63" autocomplete="new-password" spellcheck="false">
+                        <div class="controls">
+                            <button type="button" class="btn btn-primary" onclick="saveWifiCredentials()">Save</button>
+                            <button type="button" class="btn btn-danger" onclick="forgetWifi()">Forget network</button>
+                        </div>
+                        <p class="wifi-update-status" id="wifiStatusLine"></p>
+                        <p class="wifi-update-status" id="wifiSaveMsg"></p>
                     </div>
                 </div>
             </div>
@@ -160,11 +176,138 @@
         // Call on page load
         window.addEventListener('load', initializeThresholds);
         
+        let wifiPollTimer = null;
+        let wifiConfigured = false;
+        let wifiReady = false;
+
+        function wifiStatusText(data) {
+            if (!data.configured || data.state === 'idle') {
+                return 'Not configured — updates over Wi-Fi are off';
+            }
+            if (data.state === 'joining') {
+                return 'Connecting to ' + (data.ssid || '') + '…';
+            }
+            if (data.state === 'connected') {
+                return 'Connected to ' + (data.ssid || '') + ' — ' + (data.ip || '');
+            }
+            return 'Could not connect to ' + (data.ssid || '') + ' (' + (data.last_error || '') + ') — timing is unaffected';
+        }
+
+        function stopWifiPoll() {
+            if (wifiPollTimer) {
+                clearInterval(wifiPollTimer);
+                wifiPollTimer = null;
+            }
+        }
+
+        async function refreshWifiStatus(fillSsid) {
+            try {
+                const response = await fetch('/api/wifi/status');
+                if (response.status === 404) {
+                    const section = document.getElementById('wifiUpdateSection');
+                    if (section) {
+                        section.style.display = 'none';
+                    }
+                    stopWifiPoll();
+                    return;
+                }
+                if (!response.ok) {
+                    return;
+                }
+                const data = await response.json();
+                wifiReady = true;
+                wifiConfigured = !!data.configured;
+                const line = document.getElementById('wifiStatusLine');
+                if (line) {
+                    line.textContent = wifiStatusText(data);
+                }
+                const ssidInput = document.getElementById('wifiSsid');
+                if (fillSsid && ssidInput && document.activeElement !== ssidInput) {
+                    ssidInput.value = data.ssid || '';
+                }
+                const pass = document.getElementById('wifiPass');
+                if (pass) {
+                    pass.placeholder = data.configured ? 'unchanged' : '';
+                }
+            } catch (error) {
+                // Leave the last status line. The next poll retries.
+            }
+        }
+
+        function startWifiPoll() {
+            stopWifiPoll();
+            refreshWifiStatus(true);
+            wifiPollTimer = setInterval(function () {
+                refreshWifiStatus(false);
+            }, 5000);
+        }
+
         function toggleConfig() {
             const content = document.getElementById('configContent');
             const icon = document.getElementById('configIcon');
             content.classList.toggle('collapsed');
             icon.classList.toggle('collapsed');
+            if (content.classList.contains('collapsed')) {
+                stopWifiPoll();
+            } else {
+                startWifiPoll();
+            }
+        }
+
+        async function saveWifiCredentials() {
+            if (!wifiReady) {
+                return;
+            }
+            const ssid = document.getElementById('wifiSsid').value;
+            const passEl = document.getElementById('wifiPass');
+            const msg = document.getElementById('wifiSaveMsg');
+            const body = { ssid: ssid };
+            if (passEl.value.length > 0 || !wifiConfigured) {
+                body.password = passEl.value;
+            }
+            try {
+                const response = await fetch('/api/wifi/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    msg.textContent = data.error || 'Could not save';
+                    return;
+                }
+                passEl.value = '';
+                wifiConfigured = !!data.configured;
+                passEl.placeholder = data.configured ? 'unchanged' : '';
+                msg.textContent = '';
+                document.getElementById('wifiStatusLine').textContent = wifiStatusText(data);
+            } catch (error) {
+                msg.textContent = 'Could not save';
+            }
+        }
+
+        async function forgetWifi() {
+            const msg = document.getElementById('wifiSaveMsg');
+            try {
+                const response = await fetch('/api/wifi/forget', { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok) {
+                    msg.textContent = data.error || 'Could not forget the network';
+                    return;
+                }
+                const passEl = document.getElementById('wifiPass');
+                passEl.value = '';
+                passEl.placeholder = '';
+                wifiConfigured = false;
+                const ssidInput = document.getElementById('wifiSsid');
+                if (ssidInput && document.activeElement !== ssidInput) {
+                    ssidInput.value = data.ssid || '';
+                }
+                msg.textContent = '';
+                document.getElementById('wifiStatusLine').textContent = wifiStatusText(data);
+            } catch (error) {
+                msg.textContent = 'Could not forget the network';
+            }
         }
         
         function updateEnterRssiVisual(value) {

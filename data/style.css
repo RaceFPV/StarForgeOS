@@ -712,7 +712,7 @@ h1 {
 }
 
 .config-content {
-    max-height: 500px;
+    max-height: 960px;
     overflow: hidden;
     transition: max-height 0.3s ease-out, padding 0.3s ease-out;
     padding: 25px;
@@ -774,6 +774,31 @@ h1 {
 
 .config-item input[type="range"] {
     cursor: pointer;
+}
+
+.wifi-update-title {
+    color: #ff7b00;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.wifi-update-help,
+.wifi-update-status {
+    color: #e0e6ed;
+    font-size: 14px;
+    line-height: 1.4;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+}
+
+.wifi-update-status {
+    font-family: 'Courier New', monospace;
+    min-height: 1.2em;
+}
+
+#wifiSaveMsg:empty {
+    display: none;
 }
 
 #thresholdValue {

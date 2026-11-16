@@ -23,8 +23,18 @@ bool WiFiManager::setupAP() {
 
     // Create unique SSID with MAC address
     // Use softAPmacAddress() for AP mode, not macAddress() (which is for STA mode)
-    // Note: We need WiFi mode set to AP before we can get MAC address
+    // The AP interface has to be up before the soft-AP MAC can be read.
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // KNOWN RESIDUAL RISK: WIFI_AP_PASSWORD is empty, so SFOS-XXXX is an open
+    // access point. Anyone in radio range can open the settings page and
+    // overwrite the station credentials. A per-device AP password shown on
+    // the LCD is a separate product decision and is intentionally not changed.
+    WiFi.persistent(false);
+    WiFi.setAutoReconnect(false);
+    WiFi.mode(WIFI_AP_STA);
+#else
     WiFi.mode(WIFI_AP);
+#endif
     delay(50);  // Small delay to ensure mode change is processed
     
     String macAddr = WiFi.softAPmacAddress();

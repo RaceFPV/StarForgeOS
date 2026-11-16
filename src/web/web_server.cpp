@@ -7,6 +7,8 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <cstdio>
+#include <cstring>
+#include "net/wifi_sta.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/FreeRTOS.h>
@@ -163,6 +165,99 @@ void WebServerManager::mountSpiffs() {
     }
 }
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+static void sendWifiJson(AsyncWebServerRequest *request, int code, const char *json) {
+    request->send(code, "application/json", String(json));
+}
+
+static void sendWifiStatus(AsyncWebServerRequest *request) {
+    char buf[512];
+    size_t n = sf_wifi_sta_status_json(buf, sizeof(buf));
+    if (n == 0 || n >= sizeof(buf)) {
+        sendWifiJson(request, 500, "{\"error\":\"Could not build status\"}");
+        return;
+    }
+    sendWifiJson(request, 200, buf);
+}
+
+static void handleWifiStatus(AsyncWebServerRequest *request) {
+    sendWifiStatus(request);
+}
+
+static void handleWifiForget(AsyncWebServerRequest *request) {
+    sf_wifi_sta_forget();
+    sendWifiStatus(request);
+}
+
+static char s_wifiBody[384];
+static size_t s_wifiBodyLen = 0;
+
+static void handleWifiCredentialsBody(AsyncWebServerRequest *request, uint8_t *data,
+                                      size_t len, size_t index, size_t total) {
+    if (index == 0) {
+        s_wifiBodyLen = 0;
+    }
+    if (total >= sizeof(s_wifiBody) || s_wifiBodyLen + len >= sizeof(s_wifiBody)) {
+        memset(s_wifiBody, 0, sizeof(s_wifiBody));
+        s_wifiBodyLen = 0;
+        sendWifiJson(request, 400, "{\"error\":\"Body too large\"}");
+        return;
+    }
+    memcpy(s_wifiBody + s_wifiBodyLen, data, len);
+    s_wifiBodyLen += len;
+    if (index + len < total) {
+        return;
+    }
+    s_wifiBody[s_wifiBodyLen] = '\0';
+
+    StaticJsonDocument<256> doc;
+    DeserializationError jsonError = deserializeJson(doc, s_wifiBody);
+    if (jsonError) {
+        memset(s_wifiBody, 0, sizeof(s_wifiBody));
+        sendWifiJson(request, 400, "{\"error\":\"Invalid JSON\"}");
+        return;
+    }
+    if (!doc["ssid"].is<const char *>()) {
+        memset(s_wifiBody, 0, sizeof(s_wifiBody));
+        sendWifiJson(request, 400, "{\"error\":\"SSID must be 1 to 32 characters\"}");
+        return;
+    }
+
+    const char *ssid = doc["ssid"].as<const char *>();
+    bool havePassword = doc.containsKey("password");
+    const char *password = "";
+    if (havePassword) {
+        if (!doc["password"].is<const char *>()) {
+            memset(s_wifiBody, 0, sizeof(s_wifiBody));
+            sendWifiJson(request, 400, "{\"error\":\"Password must be empty or 8 to 63 characters\"}");
+            return;
+        }
+        password = doc["password"].as<const char *>();
+        if (!password) {
+            password = "";
+        }
+    }
+
+    char err[96];
+    bool stored = sf_wifi_sta_set_credentials(ssid, password, havePassword, err, sizeof(err));
+    memset(s_wifiBody, 0, sizeof(s_wifiBody));
+    s_wifiBodyLen = 0;
+    if (!stored) {
+        StaticJsonDocument<160> errDoc;
+        errDoc["error"] = err[0] ? err : "Could not store Wi-Fi settings";
+        char errBuf[160];
+        size_t written = serializeJson(errDoc, errBuf, sizeof(errBuf));
+        if (written == 0 || written >= sizeof(errBuf)) {
+            sendWifiJson(request, 400, "{\"error\":\"Could not store Wi-Fi settings\"}");
+            return;
+        }
+        sendWifiJson(request, 400, errBuf);
+        return;
+    }
+    sendWifiStatus(request);
+}
+#endif
+
 void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsManager,
                               bool* raceActive, uint32_t* raceStartTime, std::vector<LapData>* laps) {
     _timingCore = timingCore;
@@ -242,6 +337,21 @@ void WebServerManager::begin(TimingCore* timingCore, SettingsManager* settingsMa
     _server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest* request) { handleGetConfig(request); });
     _server.on("/style.css", HTTP_GET, [this](AsyncWebServerRequest* request) { handleStyleCSS(request); });
     _server.on("/app.js", HTTP_GET, [this](AsyncWebServerRequest* request) { handleAppJS(request); });
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // KNOWN RESIDUAL RISK: the AP is open (WIFI_AP_PASSWORD is empty). Anyone
+    // in radio range can POST /api/wifi/credentials and replace the station
+    // network. Closing that means a per-device AP password, which is not this change.
+    _server.on("/api/wifi/status", HTTP_GET, handleWifiStatus);
+    _server.on("/api/wifi/forget", HTTP_POST, handleWifiForget);
+    _server.on("/api/wifi/credentials", HTTP_POST,
+               [](AsyncWebServerRequest *request) {
+                   if (request->contentLength() == 0) {
+                       request->send(400, "application/json", "{\"error\":\"Missing JSON body\"}");
+                   }
+               },
+               nullptr,
+               handleWifiCredentialsBody);
+#endif
     _server.onNotFound([this](AsyncWebServerRequest* request) { handleNotFound(request); });
 
     Serial.println("Starting web server...");
@@ -281,7 +391,7 @@ void WebServerManager::handleRoot(AsyncWebServerRequest* request) {
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/index.html", "text/html");
         // HTML should be revalidated (not cached long) since it contains versioned script/style links
         response->addHeader("Cache-Control", "public, max-age=300, must-revalidate");  // 5 min cache, then revalidate
-        response->addHeader("ETag", "\"index-v5\"");  // Version tag for cache validation
+        response->addHeader("ETag", "\"index-v6\"");  // Version tag for cache validation
         request->send(response);
     } else {
         request->send(404, "text/plain", "index.html not found");
@@ -748,7 +858,7 @@ void WebServerManager::handleStyleCSS(AsyncWebServerRequest* request) {
         AsyncWebServerResponse* response = request->beginResponse(SPIFFS, "/style.css", "text/css");
         // Enable browser caching with 1 year expiration (versioned via ?v= in HTML)
         response->addHeader("Cache-Control", "public, max-age=31536000, immutable");
-        response->addHeader("ETag", "\"style-v5\"");  // Version tag for cache validation
+        response->addHeader("ETag", "\"style-v6\"");  // Version tag for cache validation
         request->send(response);
         
         // Schedule non-blocking resume after delay (prevents watchdog timeout)

@@ -6,6 +6,7 @@
 #include "aws/aws_iot.h"
 #include "aws/fs_creds.h"
 #include "aws/telemetry.h"
+#include "net/wifi_sta.h"
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
 #include "hardware/battery_monitor.h"
@@ -25,6 +26,15 @@
 
 #if ENABLE_LCD_UI
 StandaloneMode* StandaloneMode::_lcdInstance = nullptr;
+#endif
+
+#if defined(BOARD_ESP32_S3_TOUCH)
+static SfAwsCreds g_aws_creds;
+static const SfAwsCreds *g_aws_creds_ptr = nullptr;
+
+static void sf_start_aws_on_sta(void) {
+    sf_aws_start(g_aws_creds_ptr);
+}
 #endif
 
 StandaloneMode::StandaloneMode() : _timingCore(nullptr) {
@@ -106,6 +116,20 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     // Initialize WiFi AP with stability improvements
     _wifiManager->setupAP();
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // NVS holds the station network. AWS files are read on this thread, once,
+    // before the server serves SPIFFS and before a join can report connected.
+    _webServer->mountSpiffs();
+    sf_telemetry_boot();
+    g_aws_creds_ptr = nullptr;
+    if (sf_fs_creds_load(&g_aws_creds)) {
+        g_aws_creds_ptr = &g_aws_creds;
+    }
+    sf_wifi_sta_on_first_connect(sf_start_aws_on_sta);
+    sf_wifi_sta_begin();
+    sf_wifi_sta_poll(false);
+#endif
+
     // Give WiFi time to stabilize
     delay(600);
 
@@ -113,17 +137,6 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     // This gives us the best chance of getting a contiguous block before heap fragmentation
 #if RSSI_HISTORY_ENABLED
     _timingCore->allocateRSSIHistory();
-#endif
-
-#if defined(BOARD_ESP32_S3_TOUCH)
-    // One SPIFFS mount, then read credentials on this thread before anyone serves files.
-    static SfAwsCreds aws_creds;
-    const SfAwsCreds *aws_creds_ptr = nullptr;
-    _webServer->mountSpiffs();
-    sf_telemetry_boot();
-    if (sf_fs_creds_load(&aws_creds)) {
-        aws_creds_ptr = &aws_creds;
-    }
 #endif
 
     // Initialize web server
@@ -197,15 +210,11 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 #endif
 
     Serial.println("Setup complete!");
-
-#if defined(BOARD_ESP32_S3_TOUCH)
-    // Buffers in aws_creds live for the process. The task does not touch SPIFFS.
-    sf_aws_start(aws_creds_ptr);
-#endif
 }
 
 void StandaloneMode::process() {
 #if defined(BOARD_ESP32_S3_TOUCH)
+    sf_wifi_sta_poll(_raceActive);
     // Both the LCD stop button and /api/stop_race only clear _raceActive.
     {
         static bool was_active = false;

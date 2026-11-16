@@ -196,7 +196,10 @@
 
 // WiFi configuration
 #define WIFI_AP_SSID_PREFIX "SFOS"
-#define WIFI_AP_PASSWORD    ""    // Open network for simplicity
+// Open on purpose. KNOWN RESIDUAL RISK: anyone in radio range can join
+// SFOS-XXXX and overwrite the station credentials. A per-device AP password
+// shown on the LCD is a separate product decision; do not change this here.
+#define WIFI_AP_PASSWORD    ""
 #define WEB_SERVER_PORT     80
 #define MDNS_HOSTNAME       "sfos"         // mDNS hostname (accessible as sfos.local)
 
