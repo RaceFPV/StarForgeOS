@@ -203,23 +203,30 @@ jobs:
             cd ..
           fi
         done
-        # Fleet ingest skips a GitHub release that has no ota.json asset.
-        # Only the touch image contains the OTA client, so name that zip.
-        # A prerelease stays a candidate; a final release is the promoted channel.
+        # ota.json is the opt-in for fleet delivery: the ingest Lambda skips any
+        # release without it. Attach it ONLY when the touch image actually
+        # contains the OTA job client. A build from a branch without that client
+        # would be accepted by the fleet, installed, and then silence the device
+        # for ever - it could not report, and could not be updated again.
         if [ "${{ github.event.release.prerelease }}" = "true" ]; then
           CHANNEL=candidate
         else
           CHANNEL=released
         fi
-        cat > ota.json << EOF
-{
-  "board": "racefpv-vtx",
-  "hw_gen": "esp32s3",
-  "channel": "$CHANNEL",
-  "asset": "StarForge-esp32-s3-touch.zip",
-  "inner": "firmware.bin"
-}
-EOF
+        if unzip -p StarForge-esp32-s3-touch.zip firmware.bin 2>/dev/null | grep -qa "jobs/notify-next"; then
+          cat > ota.json << EOF
+        {
+          "board": "racefpv-vtx",
+          "hw_gen": "esp32s3",
+          "channel": "$CHANNEL",
+          "asset": "StarForge-esp32-s3-touch.zip",
+          "inner": "firmware.bin"
+        }
+        EOF
+          echo "ota.json written (channel=$CHANNEL)"
+        else
+          echo "::warning::touch image has no OTA client - ota.json not attached, release stays human-only"
+        fi
     
     - name: Upload to release
       uses: softprops/action-gh-release@v1
