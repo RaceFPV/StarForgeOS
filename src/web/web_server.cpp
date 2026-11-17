@@ -665,7 +665,6 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest* request) {
     customPins["rx5808_data"] = prefs.getUChar("pin_rx5808_data", 0);
     customPins["rx5808_clk"] = prefs.getUChar("pin_rx5808_clk", 0);
     customPins["rx5808_sel"] = prefs.getUChar("pin_rx5808_sel", 0);
-    customPins["mode_switch"] = prefs.getUChar("pin_mode_switch", 0);
 
     uint8_t power_button = prefs.getUChar("pin_power_button", 0);
     if (power_button > 0 || prefs.isKey("pin_power_button")) {

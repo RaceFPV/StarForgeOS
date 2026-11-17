@@ -23,9 +23,6 @@ help:
 	@echo "    make size BOARD=<env>    - Show firmware size"
 	@echo "    make list-boards         - List all available boards"
 	@echo ""
-	@echo "  Integration:"
-	@echo "    make test-rotorhazard PORT=<port> BOARD=<env> - Test with mock RotorHazard"
-	@echo ""
 	@echo "  Documentation:"
 	@echo "    make docs              - Open test documentation"
 	@echo ""
@@ -43,7 +40,6 @@ help:
 	@echo "    make build BOARD=esp32-c3-supermini"
 	@echo "    make upload BOARD=esp32dev"
 	@echo "    make test-board BOARD=test-esp32-c3"
-	@echo "    make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32dev"
 	@echo ""
 
 # Quick test - build only (no hardware required)
@@ -195,20 +191,3 @@ ci:
 du:
 	@echo "💾 Build artifacts disk usage:"
 	@du -sh .pio 2>/dev/null || echo "No build artifacts found"
-
-# RotorHazard integration test (requires hardware)
-test-rotorhazard:
-ifndef PORT
-	@echo "❌ Error: PORT not specified"
-	@echo "Usage: make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32-c3-supermini"
-	@exit 1
-endif
-ifndef BOARD
-	@echo "❌ Error: BOARD not specified"
-	@echo "Usage: make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32-c3-supermini"
-	@exit 1
-endif
-	@echo "🔌 Running RotorHazard integration test..."
-	@chmod +x test/tools/test_rotorhazard_integration.sh
-	@./test/tools/test_rotorhazard_integration.sh $(PORT) $(BOARD)
-

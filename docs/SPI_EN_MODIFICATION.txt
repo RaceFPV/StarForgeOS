@@ -100,7 +100,7 @@ SOFTWARE TEST (Final Verification):
 ────────────────────────────────────
 
   [✓] Flash updated firmware
-  [✓] Boot in WiFi mode (MODE_SWITCH_PIN to GND)
+  [✓] Power the board on (it always starts in Wi-Fi mode)
   [✓] Connect to Tracer-XXXX AP
   [✓] Open serial monitor (921600 baud)
   [✓] Change frequency from R1 to R2 in web UI

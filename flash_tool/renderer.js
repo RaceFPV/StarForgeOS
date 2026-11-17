@@ -25,7 +25,6 @@ const pinPresets = {
     rx5808_data: 6,
     rx5808_clk: 4,
     rx5808_sel: 7,
-    mode_switch: 1,
     power_button: 0,
     battery_adc: 0,
     audio_dac: 0
@@ -35,7 +34,6 @@ const pinPresets = {
     rx5808_data: 6,
     rx5808_clk: 4,
     rx5808_sel: 7,
-    mode_switch: 1,
     power_button: 0,
     battery_adc: 0,
     audio_dac: 0
@@ -45,7 +43,6 @@ const pinPresets = {
     rx5808_data: 23,
     rx5808_clk: 18,
     rx5808_sel: 5,
-    mode_switch: 33,
     power_button: 0,
     battery_adc: 0,
     audio_dac: 26
@@ -761,7 +758,6 @@ function loadPinPreset() {
   document.getElementById('pin-data').value = pins.rx5808_data;
   document.getElementById('pin-clk').value = pins.rx5808_clk;
   document.getElementById('pin-sel').value = pins.rx5808_sel;
-  document.getElementById('pin-mode').value = pins.mode_switch;
   document.getElementById('pin-power').value = pins.power_button || 0;
   document.getElementById('pin-battery').value = pins.battery_adc || 0;
   document.getElementById('pin-audio').value = pins.audio_dac || 0;
@@ -778,8 +774,7 @@ function getCustomPinConfig() {
       rssi_input: parseInt(document.getElementById('pin-rssi').value) || 3,
       rx5808_data: parseInt(document.getElementById('pin-data').value) || 6,
       rx5808_clk: parseInt(document.getElementById('pin-clk').value) || 4,
-      rx5808_sel: parseInt(document.getElementById('pin-sel').value) || 7,
-      mode_switch: parseInt(document.getElementById('pin-mode').value) || 1
+      rx5808_sel: parseInt(document.getElementById('pin-sel').value) || 7
     }
   };
 }

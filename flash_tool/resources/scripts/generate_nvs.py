@@ -63,8 +63,6 @@ def create_nvs_csv(config_dict, output_csv):
             lines.append(f"pin_rx5808_clk,u8,,{custom_pins['rx5808_clk']}")
         if "rx5808_sel" in custom_pins:
             lines.append(f"pin_rx5808_sel,u8,,{custom_pins['rx5808_sel']}")
-        if "mode_switch" in custom_pins:
-            lines.append(f"pin_mode_switch,u8,,{custom_pins['mode_switch']}")
         
         # Optional pins
         if "power_button" in custom_pins and custom_pins["power_button"] > 0:
@@ -202,8 +200,7 @@ def main():
                 "rssi_input": 3,
                 "rx5808_data": 6,
                 "rx5808_clk": 4,
-                "rx5808_sel": 7,
-                "mode_switch": 1
+                "rx5808_sel": 7
             }
         }, indent=2))
         print("")

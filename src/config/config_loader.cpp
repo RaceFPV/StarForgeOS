@@ -39,7 +39,6 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
     config->rx5808_data_pin = prefs.getUChar("pin_rx5808_data", 0);
     config->rx5808_clk_pin = prefs.getUChar("pin_rx5808_clk", 0);
     config->rx5808_sel_pin = prefs.getUChar("pin_rx5808_sel", 0);
-    config->mode_switch_pin = prefs.getUChar("pin_mode_switch", 0);
     
     // Optional pins (check if they exist in NVS, use 0 if not found)
     config->power_button_pin = prefs.getUChar("pin_power_button", 0);
@@ -83,7 +82,6 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
         Serial.printf("  RX5808 Data: GPIO%d\n", config->rx5808_data_pin);
         Serial.printf("  RX5808 CLK: GPIO%d\n", config->rx5808_clk_pin);
         Serial.printf("  RX5808 SEL: GPIO%d\n", config->rx5808_sel_pin);
-        Serial.printf("  Mode Switch: GPIO%d\n", config->mode_switch_pin);
     }
     
     return true;
@@ -111,7 +109,6 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
         prefs.putUChar("pin_rx5808_data", config->rx5808_data_pin);
         prefs.putUChar("pin_rx5808_clk", config->rx5808_clk_pin);
         prefs.putUChar("pin_rx5808_sel", config->rx5808_sel_pin);
-        prefs.putUChar("pin_mode_switch", config->mode_switch_pin);
         
         // Optional pins (only save if > 0)
         if (config->power_button_pin > 0) {

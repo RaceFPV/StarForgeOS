@@ -11,7 +11,6 @@ extern uint8_t g_rssi_input_pin;
 extern uint8_t g_rx5808_data_pin;
 extern uint8_t g_rx5808_clk_pin;
 extern uint8_t g_rx5808_sel_pin;
-extern uint8_t g_mode_switch_pin;
 
 #if ENABLE_POWER_BUTTON
 extern uint8_t g_power_button_pin;

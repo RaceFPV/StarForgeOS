@@ -3,7 +3,6 @@
 #include "config/config_loader.h"
 #include "timing_core.h"
 #include "standalone_mode.h"
-#include "node_mode.h"
 #include <WiFi.h>
 #include <SPIFFS.h>
 #include <nvs_flash.h>
@@ -28,19 +27,12 @@
     #pragma message "BUILD: Generic ESP32 detected"
 #endif
 
-// Global firmware version strings (for compatibility with RotorHazard server)
-const char *firmwareVersionString = "FIRMWARE_VERSION: ESP32_1.0.0";
-const char *firmwareBuildDateString = "FIRMWARE_BUILDDATE: " __DATE__;
-const char *firmwareBuildTimeString = "FIRMWARE_BUILDTIME: " __TIME__;
-const char *firmwareProcTypeString = "FIRMWARE_PROCTYPE: ESP32";
-
 // Global pin configuration (can be overridden by custom pin config in NVS)
 // These are initialized from config.h defaults, then potentially overridden at boot
 uint8_t g_rssi_input_pin = RSSI_INPUT_PIN;
 uint8_t g_rx5808_data_pin = RX5808_DATA_PIN;
 uint8_t g_rx5808_clk_pin = RX5808_CLK_PIN;
 uint8_t g_rx5808_sel_pin = RX5808_SEL_PIN;
-uint8_t g_mode_switch_pin = MODE_SWITCH_PIN;
 
 #if ENABLE_POWER_BUTTON
 uint8_t g_power_button_pin = POWER_BUTTON_PIN;
@@ -67,16 +59,6 @@ int8_t g_lcd_backlight = LCD_BACKLIGHT;
 // Global objects
 TimingCore timing;
 StandaloneMode standalone;
-NodeMode node;
-
-// Current operation mode
-enum OperationMode {
-  MODE_STANDALONE,
-  MODE_ROTORHAZARD
-};
-
-OperationMode current_mode;
-bool mode_initialized = false;
 
 #if ENABLE_POWER_BUTTON
 // Power button state tracking
@@ -85,37 +67,18 @@ bool power_button_pressed = false;
 bool deep_sleep_initiated = false;
 #endif
 
-#if ENABLE_LCD_UI
-// For touch boards, mode is controlled by UI instead of physical pin
-OperationMode requested_mode = MODE_STANDALONE;  // Default to standalone for LCD boards
-#endif
-
 // Function declarations
-void checkModeSwitch();
 void initializeMode();
-void serialEvent();
 
 #if ENABLE_POWER_BUTTON
 void checkPowerButton();
 void enterDeepSleep();
 #endif
 
-#if ENABLE_LCD_UI
-// Function to request mode change from UI (touch boards only)
-void requestModeChange(OperationMode new_mode);
-#endif
-
-// Helper function to check if Serial output is allowed (only in standalone mode)
-inline bool allowSerialOutput() {
-  return (current_mode == MODE_STANDALONE);
-}
-
 void setup() {
   Serial.begin(UART_BAUD_RATE);
   delay(200);  // Longer delay to ensure all ESP-IDF boot messages complete
   
-  // Clear any bootloader/ESP-IDF messages (ESP32 ROM bootloader + ESP-IDF errors)
-  // This prevents garbage data from interfering with RotorHazard node detection
   while (Serial.available()) {
     Serial.read();
   }
@@ -130,12 +93,8 @@ void setup() {
     nvs_flash_erase();
     nvs_ret = nvs_flash_init();
   }
-  // Note: We don't print warnings here because mode hasn't been determined yet
-  // NVS errors are non-fatal - device will work with default calibration
+  // NVS errors are non-fatal - the device still runs with default calibration
   
-  // CRITICAL: Load custom pin configuration from NVS BEFORE mode detection
-  // This ensures custom mode switch pins work correctly for mode determination
-  // We suppress Serial output during loading since mode hasn't been determined yet
   CustomPinConfig customConfig;
   if (ConfigLoader::loadCustomConfig(&customConfig, false)) {  // false = suppress Serial output
     // Override pins with custom values from NVS
@@ -143,7 +102,6 @@ void setup() {
     g_rx5808_data_pin = customConfig.rx5808_data_pin;
     g_rx5808_clk_pin = customConfig.rx5808_clk_pin;
     g_rx5808_sel_pin = customConfig.rx5808_sel_pin;
-    g_mode_switch_pin = customConfig.mode_switch_pin;  // Load BEFORE mode detection
     
     #if ENABLE_POWER_BUTTON
     if (customConfig.power_button_pin > 0) {
@@ -182,44 +140,13 @@ void setup() {
     #endif
   }
   
-  // CRITICAL: Determine mode AFTER custom pins are loaded
-  // This ensures custom mode switch pins work correctly
-  // This also ensures no debug messages appear in RotorHazard node mode
-  #if ENABLE_LCD_UI
-    // Touch board: Mode is controlled via touchscreen button, not physical pin
-    // ALWAYS start in standalone mode on boot (LCD/WiFi mode)
-    current_mode = MODE_STANDALONE;
-    #if ENABLE_LCD_UI
-      requested_mode = MODE_STANDALONE;  // Ensure both are in sync
-    #endif
-  #else
-    // Non-touch boards: Initialize mode selection pin with internal pull-up
-    // Note: g_mode_switch_pin may have been overridden by custom pins above
-    pinMode(g_mode_switch_pin, INPUT_PULLUP);
-    
-    // Determine initial mode BEFORE any serial output
-    bool initial_switch_state = digitalRead(g_mode_switch_pin);
-
-    #if defined(BOARD_NUCLEARCOUNTER)
-      // NuclearCounter: Button brings pin HIGH when pressed (opposite of default behavior)
-      // HIGH (button pressed) = STANDALONE, LOW (button not pressed) = ROTORHAZARD
-      current_mode = (initial_switch_state == HIGH) ? MODE_STANDALONE : MODE_ROTORHAZARD;
-    #else
-      // Default behavior: LOW (GND) = STANDALONE, HIGH/floating = ROTORHAZARD
-      current_mode = (initial_switch_state == LOW) ? MODE_STANDALONE : MODE_ROTORHAZARD;
-    #endif
-  #endif
-  
-  // Now that mode is determined, we can safely print status messages in standalone mode
-  if (current_mode == MODE_STANDALONE && ConfigLoader::hasCustomConfig()) {
+  if (ConfigLoader::hasCustomConfig()) {
     Serial.println("Using custom pin configuration from NVS");
-  } else if (current_mode == MODE_STANDALONE) {
+  } else {
     Serial.println("Using default pin configuration from config.h");
   }
   
-  // Debug: Print board configuration (only in standalone mode)
-  if (current_mode == MODE_STANDALONE) {
-    Serial.println("\n=== BOARD CONFIGURATION ===");
+  Serial.println("\n=== BOARD CONFIGURATION ===");
     #if defined(BOARD_ESP32_S3_TOUCH)
       Serial.println("Board: Waveshare ESP32-S3-Touch-LCD-2");
       Serial.printf("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
@@ -229,38 +156,14 @@ void setup() {
     #else
       Serial.println("Board: Generic ESP32");
     #endif
-    Serial.println("===========================\n");
-    
-    #if ENABLE_LCD_UI
-      Serial.println("Touch board detected: Mode switch via LCD UI");
-      Serial.println("Defaulting to STANDALONE mode (user can switch via LCD button)");
-    #endif
-  }
-  // Only show startup messages in standalone mode (safe for debug output)
-  if (current_mode == MODE_STANDALONE) {
-    delay(1000); // Give everything time to start up
-    Serial.println();
-    Serial.println("=== StarForge ESP32 Timer ===");
-    Serial.println();
-    Serial.println("Mode: STANDALONE/WIFI");
-    Serial.println("Initializing timing core...");
-    // WiFi.softAP("SFOS", ""); // WE NEED THIS HERE FOR SOME DUMB REASON, OTHERWISE THE WIFI DOESN'T START UP CORRECTLY
-    // delay(500); // Increased delay for ESP32-WROOM-32D cache stability
-  }
+  Serial.println("===========================\n");
   
-  // CRITICAL: For ESP32-WROOM-32D, delay timing task creation until AFTER WiFi is initialized
-  // This prevents cache errors during WiFi initialization
-  // Initialize core timing system (creates task but keeps it INACTIVE)
-  // On single-core ESP32-C3, timing task must NOT run until after mode initialization
-  // Otherwise it starves serial/WiFi setup (same issue as WiFi AP initialization)
-  // For ESP32-WROOM-32D, we delay this to prevent cache conflicts
-  if (current_mode == MODE_STANDALONE) {
-    // Delay timing task creation for standalone mode to let WiFi initialize first
-    // This is a workaround for ESP32-WROOM-32D cache errors
-  } else {
-    // For node mode, we can create the timing task earlier
-    timing.begin();
-  }
+  delay(1000); // Give everything time to start up
+  Serial.println();
+  Serial.println("=== StarForge ESP32 Timer ===");
+  Serial.println();
+  Serial.println("Mode: WIFI");
+  Serial.println("Initializing timing core...");
   
 #if ENABLE_POWER_BUTTON
   // Initialize power button (pin 22 on JC2432W328C)
@@ -269,32 +172,17 @@ void setup() {
   // Configure deep sleep wake-up on power button press (active LOW)
   esp_sleep_enable_ext0_wakeup((gpio_num_t)g_power_button_pin, 0);  // Wake when pin goes LOW
   
-  if (allowSerialOutput()) {
-    Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
-  }
+  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
 #endif
   
-  // Set debug mode based on current mode
-  bool debug_mode = (current_mode == MODE_STANDALONE);
-  timing.setDebugMode(debug_mode);
+  timing.setDebugMode(true);
   
-  // Initialize mode-specific functionality BEFORE activating timing task
+  // Start WiFi before the timing task so ESP32-WROOM-32D cache stays stable
   initializeMode();
-  
-  // For standalone mode, create timing task AFTER WiFi is initialized (ESP32-WROOM-32D fix)
-  if (current_mode == MODE_STANDALONE) {
-    // Give WiFi extra time to fully stabilize before creating timing task
-    delay(500);
-    timing.begin();
-  }
-  
-  // NOW activate timing core after mode setup is complete
-  // This ensures serial port and WiFi are fully initialized before timing task runs
+  delay(500);
+  timing.begin();
   timing.setActivated(true);
-  
-  if (current_mode == MODE_STANDALONE) {
-    Serial.println("Timing core activated and running");
-  }
+  Serial.println("Timing core activated and running");
 }
 
 void loop() {
@@ -303,70 +191,16 @@ void loop() {
   checkPowerButton();
 #endif
   
-  // Always process core timing (now handled by FreeRTOS task)
   timing.process();
-  
-  // Process mode-specific functions
-  if (current_mode == MODE_STANDALONE) {
-    standalone.process();
-  } else {
-    // In node mode, prioritize serial processing
-    node.handleSerialInput();  // Direct call for faster response
-    node.process();
-  }
-  
-  // Handle serial communication again (belt and suspenders)
-  serialEvent();
-  
-  // Very brief yield to allow timing task to run (ESP32-C3 single core)
-  // Must be short to ensure responsive serial communication
-  taskYIELD();  // Just yield, don't sleep - faster response
-}
-
-// Serial event handler (like Arduino)
-void serialEvent() {
-  // Only handle serial in RotorHazard node mode
-  if (current_mode == MODE_ROTORHAZARD) {
-    node.handleSerialInput();
-  }
+  standalone.process();
+  taskYIELD();
 }
 
 void initializeMode() {
-  if (current_mode == MODE_STANDALONE) {
-    // Only show debug output in standalone mode
-    Serial.println("=== WIFI MODE ACTIVE ===");
-    
-    // Initialize standalone mode
-    standalone.begin(&timing);
-    
-    // The standalone.begin() outputs WiFi connection details and "Setup complete!"
-    Serial.println();
-    
-  } else {
-    // NODE MODE: NO debug output - it interferes with binary serial protocol
-    // Silent initialization for RotorHazard compatibility
-    
-    // Initialize node mode (silently)
-    node.begin(&timing);
-    
-    // Node mode is now active and waiting for RotorHazard commands
-    // All communication is binary - no text output allowed
-  }
-  
-  mode_initialized = true;
+  Serial.println("=== WIFI MODE ACTIVE ===");
+  standalone.begin(&timing);
+  Serial.println();
 }
-
-#if ENABLE_LCD_UI
-// Function to request mode change from UI (touch boards only)
-void requestModeChange(OperationMode new_mode) {
-  requested_mode = new_mode;
-  // Only output in standalone mode (this function is only called from LCD UI which is standalone-only)
-  if (allowSerialOutput()) {
-    Serial.printf("UI: Mode change requested to %s\n", 
-                  new_mode == MODE_STANDALONE ? "STANDALONE" : "ROTORHAZARD");
-  }
-}
-#endif
 
 #if ENABLE_POWER_BUTTON
 // Check power button state and handle long press for deep sleep
@@ -387,10 +221,8 @@ void checkPowerButton() {
       if (press_duration >= POWER_BUTTON_LONG_PRESS_MS && !deep_sleep_initiated) {
         // Long press detected - enter deep sleep
         deep_sleep_initiated = true;
-        if (allowSerialOutput()) {
-          Serial.println("Power button long press detected - entering deep sleep...");
-          Serial.println("Press power button to wake up");
-        }
+        Serial.println("Power button long press detected - entering deep sleep...");
+        Serial.println("Press power button to wake up");
         delay(100);  // Let serial output complete
         enterDeepSleep();
       }
@@ -402,9 +234,7 @@ void checkPowerButton() {
       
       // Short press - could be used for other functions if needed
       if (press_duration < POWER_BUTTON_LONG_PRESS_MS && press_duration > 50) {
-        if (allowSerialOutput()) {
-          Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
-        }
+        Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
         // Optional: Could show a menu or toggle something here
       }
       

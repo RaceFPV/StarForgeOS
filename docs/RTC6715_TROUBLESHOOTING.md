@@ -85,7 +85,7 @@ curl -X POST http://192.168.4.1/api/test_hardware
 ```
 
 **Method 2: Serial Monitor**
-- Boot in WiFi mode (MODE_SWITCH_PIN = LOW/GND)
+- Power the board on (it always starts in Wi-Fi mode)
 - Open serial monitor at 921600 baud
 - The test runs automatically on startup in debug mode
 
@@ -145,7 +145,7 @@ If RSSI doesn't change between frequencies, check SPI_EN pin!
 ## Testing Procedure
 
 1. **Flash the updated firmware** with the new diagnostic code
-2. **Boot in WiFi mode** (MODE_SWITCH_PIN = LOW/GND)
+2. **Power the board on** (it always starts in Wi-Fi mode)
 3. **Connect to SFOS WiFi AP**
 4. **Open serial monitor** at 921600 baud
 5. **Use the web interface** to change frequencies
@@ -174,7 +174,7 @@ If RSSI doesn't change = **Hardware issue, SPI not enabled**
 **Solution:** Standard board has SPI enabled by default. StarForge needs modification.
 
 ### Issue: No debug output
-**Solution:** Make sure you're in WiFi mode (not RotorHazard node mode).
+**Solution:** Open the serial monitor at 115200 baud. The firmware prints debug output after boot.
 
 ## Pin Definitions Reference
 

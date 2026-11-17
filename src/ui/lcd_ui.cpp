@@ -10,12 +10,6 @@
 #include <FS.h>
 #include <SPIFFS.h>
 
-// Forward declaration of OperationMode enum from main.cpp
-enum OperationMode {
-  MODE_STANDALONE,
-  MODE_ROTORHAZARD
-};
-
 // Static member initialization
 LcdUI* LcdUI::_instance = nullptr;
 lv_disp_draw_buf_t LcdUI::draw_buf;
@@ -40,7 +34,7 @@ LcdUI::LcdUI() :
                  rssi_label(nullptr), rssi_chart(nullptr), rssi_series(nullptr),
                  lap_count_label(nullptr), status_label(nullptr),
                  battery_label(nullptr), battery_icon(nullptr),
-                 start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr), mode_btn(nullptr),
+                 start_btn(nullptr), stop_btn(nullptr), clear_btn(nullptr),
                  band_label(nullptr), channel_label(nullptr), freq_label(nullptr), threshold_label(nullptr),
                  brightness_slider(nullptr), brightness_label(nullptr),
                  lap_times_box(nullptr), lap_times_labels{nullptr, nullptr, nullptr, nullptr, nullptr},
@@ -372,21 +366,6 @@ void LcdUI::createUI() {
     lv_obj_set_style_bg_opa(clear_label, LV_OPA_TRANSP, 0);
     lv_obj_center(clear_label);
     
-    // Mode switch button (RotorHazard/Standalone)
-    mode_btn = lv_btn_create(scr);
-    lv_obj_set_size(mode_btn, 220, 40);
-    lv_obj_set_pos(mode_btn, 10, 333);  // Below clear button
-    lv_obj_set_style_bg_color(mode_btn, lv_color_hex(0x0055aa), LV_PART_MAIN | LV_STATE_DEFAULT);  // Blue for mode switch
-    lv_obj_set_style_bg_opa(mode_btn, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(mode_btn, 0, 0);
-    lv_obj_add_event_cb(mode_btn, mode_btn_event, LV_EVENT_CLICKED, this);
-    
-    lv_obj_t *mode_label = lv_label_create(mode_btn);
-    lv_label_set_text(mode_label, "SWITCH TO ROTORHAZARD");
-    lv_obj_set_style_text_font(mode_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_bg_opa(mode_label, LV_OPA_TRANSP, 0);
-    lv_obj_center(mode_label);
-    
     // === SETTINGS SECTION (Scroll down to see) ===
     // Section header
     lv_obj_t *settings_header = lv_label_create(scr);
@@ -394,12 +373,12 @@ void LcdUI::createUI() {
     lv_obj_set_style_text_color(settings_header, lv_color_hex(0x888888), 0);
     lv_obj_set_style_text_font(settings_header, &lv_font_montserrat_14, 0);
     lv_obj_set_style_bg_opa(settings_header, LV_OPA_TRANSP, 0);
-    lv_obj_set_pos(settings_header, 60, 392);  // Moved down for mode button
+    lv_obj_set_pos(settings_header, 60, 340);
     
     // Band selector (A/B/E/F/R/L)
     lv_obj_t *band_box = lv_obj_create(scr);
     lv_obj_set_size(band_box, 220, 78);  // Increased height for better button spacing
-    lv_obj_set_pos(band_box, 10, 427);  // Adjusted position
+    lv_obj_set_pos(band_box, 10, 375);
     lv_obj_set_style_bg_color(band_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(band_box, 1, 0);
     lv_obj_set_style_border_color(band_box, lv_color_hex(0x333333), 0);
@@ -439,7 +418,7 @@ void LcdUI::createUI() {
     // Channel selector (1-8)
     lv_obj_t *channel_box = lv_obj_create(scr);
     lv_obj_set_size(channel_box, 220, 78);  // Increased height for better button spacing
-    lv_obj_set_pos(channel_box, 10, 515);  // Adjusted position (427 + 78 + 10 gap)
+    lv_obj_set_pos(channel_box, 10, 463);
     lv_obj_set_style_bg_color(channel_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(channel_box, 1, 0);
     lv_obj_set_style_border_color(channel_box, lv_color_hex(0x333333), 0);
@@ -479,7 +458,7 @@ void LcdUI::createUI() {
     // Frequency display (read-only, updates based on band/channel)
     lv_obj_t *freq_box = lv_obj_create(scr);
     lv_obj_set_size(freq_box, 220, 55);  // Increased height for better spacing
-    lv_obj_set_pos(freq_box, 10, 603);  // Adjusted position (515 + 78 + 10 gap)
+    lv_obj_set_pos(freq_box, 10, 551);
     lv_obj_set_style_bg_color(freq_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(freq_box, 1, 0);
     lv_obj_set_style_border_color(freq_box, lv_color_hex(0x333333), 0);
@@ -501,7 +480,7 @@ void LcdUI::createUI() {
     // Threshold adjustment
     lv_obj_t *threshold_box = lv_obj_create(scr);
     lv_obj_set_size(threshold_box, 220, 78);  // Increased height for better button spacing
-    lv_obj_set_pos(threshold_box, 10, 668);  // Adjusted position (603 + 55 + 10 gap)
+    lv_obj_set_pos(threshold_box, 10, 616);
     lv_obj_set_style_bg_color(threshold_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(threshold_box, 1, 0);
     lv_obj_set_style_border_color(threshold_box, lv_color_hex(0x333333), 0);
@@ -541,7 +520,7 @@ void LcdUI::createUI() {
     // Brightness slider (at bottom of settings)
     lv_obj_t* brightness_box = lv_obj_create(scr);
     lv_obj_set_size(brightness_box, 220, 90);  // Increased height for better spacing
-    lv_obj_set_pos(brightness_box, 10, 756);  // Adjusted position (668 + 78 + 10 gap)
+    lv_obj_set_pos(brightness_box, 10, 704);
     lv_obj_set_style_bg_color(brightness_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(brightness_box, 0, 0);
     lv_obj_set_style_radius(brightness_box, 8, 0);
@@ -576,7 +555,7 @@ void LcdUI::createUI() {
     // Lap times display (at bottom of screen)
     lap_times_box = lv_obj_create(scr);
     lv_obj_set_size(lap_times_box, 220, 95);  // Height for 5 lap time entries
-    lv_obj_set_pos(lap_times_box, 10, 860);  // Below brightness box (756 + 90 + 14 gap)
+    lv_obj_set_pos(lap_times_box, 10, 808);
     lv_obj_set_style_bg_color(lap_times_box, lv_color_hex(0x1a1a1a), 0);
     lv_obj_set_style_border_width(lap_times_box, 1, 0);
     lv_obj_set_style_border_color(lap_times_box, lv_color_hex(0x333333), 0);
@@ -824,30 +803,6 @@ void LcdUI::clear_btn_event(lv_event_t* e) {
     if (ui && ui->_clearCallback) {
         Serial.println("LCD: CLEAR button pressed");
         ui->_clearCallback();
-    }
-}
-
-// Mode button event handler - switches between RotorHazard and Standalone modes
-void LcdUI::mode_btn_event(lv_event_t* e) {
-    // Forward declaration of external function from main.cpp
-    extern void requestModeChange(OperationMode new_mode);
-    extern OperationMode current_mode;
-    
-    // Get button object to update label
-    lv_obj_t* btn = lv_event_get_target(e);
-    lv_obj_t* label = lv_obj_get_child(btn, 0);  // Get button label
-    
-    // Toggle mode
-    if (current_mode == MODE_STANDALONE) {
-        Serial.println("LCD: Switching to ROTORHAZARD mode");
-        requestModeChange(MODE_ROTORHAZARD);
-        // Note: The ESP32 will restart/reinit for RotorHazard mode
-        // The LCD will show the RotorHazard mode until reinitialized
-        lv_label_set_text(label, "Switching...");
-    } else {
-        Serial.println("LCD: Switching to STANDALONE mode");
-        requestModeChange(MODE_STANDALONE);
-        lv_label_set_text(label, "SWITCH TO ROTORHAZARD");
     }
 }
 

@@ -1,39 +1,24 @@
 # StarForge - ESP32 Drone Race Timing System
 
-**The ultimate dual-mode FPV race timer** - Works standalone with WiFi or integrates seamlessly with RotorHazard server. Built on ESP32 for maximum performance and reliability.
+**A Wi-Fi FPV race timer** built on ESP32. Power it on, join the access point, and time laps from a phone or laptop.
 
 > **📚 [Quick Start Guide →](docs/QUICKSTART.md)** - New user? Start here for step-by-step setup instructions, pinouts, and troubleshooting!
 
 Want to contribute, learn more, or need help, reach out to our Rotorhazard discord channel [here](https://discord.gg/Ep8sqJmh9d)
 
-## 🏁 Two Modes, One Device
-
-### 🌐 Standalone Mode - WiFi Racing
-**Perfect for casual solo racing and practice laps**
+## 🏁 Wi-Fi Racing
 - **Instant setup** - Just power on and connect to WiFi
 - **Beautiful web interface** - Works on any device (phone, tablet, laptop)
 - **Real-time RSSI monitoring** - Visual feedback with live graphs
 - **Audio announcements** - Lap times announced via browser speech synthesis
 - **Multi-band support** - Raceband, Fatshark, Boscam A/E frequencies
-- **No server required** - Everything runs on the ESP32-C3
-
-
-### 🔌 RotorHazard Node Mode - Professional Racing
-**Full integration with RotorHazard server**
-- **100% compatible** - Drop-in replacement for standard RotorHazard solo nodes
-- **High-precision timing** - FreeRTOS-based real-time processing
-- **USB connectivity** - Plug and play with existing RotorHazard setups
-- **Optimized performance** - WiFi disabled for maximum timing accuracy
-
-### 🎯 **Dual-Mode Operation**
-Switch between modes instantly - no firmware changes needed. Use a simple jumper or switch to select WiFi or RotorHazard mode.
+- **No server required** - Everything runs on the ESP32
 
 ## 🎮 Perfect For
 
-- **FPV racing clubs** - Standalone timing for practice sessions
-- **RotorHazard users** - Professional timing node for competitions
+- **FPV racing clubs** - Timing for practice sessions
 - **DIY enthusiasts** - Easy to build and customize
-- **Mobile racing** - Take timing anywhere with WiFi mode
+- **Mobile racing** - Take timing anywhere
 - **Testing and development** - Debug FPV setups and frequencies
 
 ## 🛠️ Quick Start
@@ -43,22 +28,15 @@ Switch between modes instantly - no firmware changes needed. Use a simple jumper
 > **Building your own?** Check out the [DIY Hardware Guide](docs/hardware.md) for the RX5808-based version with complete wiring diagrams and PCB design tips.
 >
 
-### Standalone Mode (WiFi)
 1. Power on the device
 2. Connect to WiFi network "SFOS-XXXX"
 3. Open browser to http://sfos.local
 4. Start racing!
 
-### RotorHazard Node Mode
-1. Connect via USB to your RotorHazard server
-2. Add as timing node in RotorHazard
-3. Full professional features available!
-
 ## 📋 Hardware Requirements
 
 - ESP32-C3 SuperMini development board
-- RX5808 FPV receiver module  
-- Mode selection switch (optional)
+- RX5808 FPV receiver module
 - Basic wiring tools
 
 ## 🔧 Technical Details
@@ -117,15 +95,11 @@ make test  # Validates all board configs compile correctly (~4-5 minutes)
 This runs:
 - ✅ Hardware configuration tests (pin definitions, constants)
 - ✅ WiFi functionality tests
-- ✅ Protocol unit tests (RotorHazard compatibility)
 
 ### Hardware Specific Testing
 ```bash
 # Test specific board with connected hardware
 make test-board BOARD=test-esp32-c3
-
-# Test RotorHazard protocol integration
-make test-rotorhazard PORT=/dev/ttyUSB0 BOARD=esp32dev
 ```
 
 ### Continuous Integration

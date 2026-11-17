@@ -159,9 +159,8 @@ If build fails:
 ## Next Steps
 
 After successful upload:
-1. **WiFi Mode**: Set mode switch to GND, connect to "SFOS-XXXX" WiFi, open http://sfos.local
-2. **Node Mode**: Set mode switch to 3.3V (or leave floating), connect to RotorHazard server via USB
-3. **Hardware Setup**: Connect RX5808 module using Hertz-hunter compatible pinout (see `hardware.md`)
+1. Connect to the "SFOS-XXXX" Wi-Fi network and open http://sfos.local
+2. Connect the RX5808 module using the Hertz-hunter compatible pinout (see `hardware.md`)
 
 ## Hardware Requirements
 

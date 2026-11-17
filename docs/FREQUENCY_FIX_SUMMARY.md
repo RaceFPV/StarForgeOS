@@ -51,7 +51,7 @@ curl -X POST http://192.168.4.1/api/test_hardware
 ```
 
 **Or just change frequencies and watch serial output:**
-- Boot in WiFi mode (connect MODE_SWITCH_PIN to GND)
+- Power the board on (it always starts in Wi-Fi mode)
 - Open serial monitor at 921600 baud
 - Change frequency in web UI
 - Watch for detailed diagnostic output

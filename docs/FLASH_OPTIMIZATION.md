@@ -102,49 +102,6 @@ build_src_flags =
 - ✅ No code changes needed
 - ⚠️ Slightly slower execution (negligible for your use case)
 
-## 🗑️ Solution 3: Conditional Compilation (Moderate - Saves ~30KB)
-
-### Problem
-
-Both **standalone mode** AND **node mode** are compiled into the binary even though you only use one at a time.
-
-### Solution
-
-Add conditional compilation flags:
-
-```ini
-[env:esp32-c3-standalone]
-board = esp32-c3-supermini
-build_flags =
-    -DENABLE_STANDALONE_MODE
-    -DDISABLE_NODE_MODE
-
-[env:esp32-c3-node]
-board = esp32-c3-supermini
-build_flags =
-    -DENABLE_NODE_MODE
-    -DDISABLE_STANDALONE_MODE
-```
-
-Then in code:
-
-```cpp
-// main.cpp
-#ifdef ENABLE_STANDALONE_MODE
-  StandaloneMode standalone;
-#endif
-
-#ifdef ENABLE_NODE_MODE
-  NodeMode node;
-#endif
-```
-
-### Benefits
-
-- ✅ **~30KB saved** per build
-- ✅ Can create specialized firmware images
-- ⚠️ Need to compile twice for both modes
-
 ## 📝 Solution 4: Remove Debug Strings (Easy - Saves ~10KB)
 
 ### Add Production Build Mode
@@ -183,9 +140,8 @@ All your `Serial.printf()` debug statements will be compiled out!
 |--------------|-----------|-------------|-------|
 | **Move web assets to SPIFFS** | Easy | ~40KB | ✅ YES |
 | **Compiler optimization** | Easy | ~50KB | ❌ TODO |
-| **Conditional compilation** | Moderate | ~30KB | ❌ TODO |
 | **Remove debug strings** | Easy | ~10KB | ❌ TODO |
-| **TOTAL POTENTIAL** | - | **~130KB** | - |
+| **TOTAL POTENTIAL** | - | **~100KB** | - |
 
 ## 🎯 Recommended Action Plan
 
@@ -200,9 +156,8 @@ All your `Serial.printf()` debug statements will be compiled out!
 ### Phase 2: If Still Tight (Do Later)
 
 4. **Add production build** - Disable debug in final releases (~10KB)
-5. **Conditional compilation** - Separate standalone/node builds (~30KB)
 
-**Expected Result:** ~130KB total saved, **~310KB free**
+**Expected Result:** ~100KB total saved, **~280KB free**
 
 ## 🧪 How to Measure
 

@@ -59,7 +59,7 @@ Replace web interface with LCD for "gate-mount" devices:
 - Perfect for battery-powered gates
 
 **Implementation:**
-1. New mode: `MODE_LCD` alongside `MODE_STANDALONE` and `MODE_ROTORHAZARD`
+1. New display path alongside the Wi-Fi web UI
 2. No WiFi initialization
 3. All UI on LCD with button/touch controls
 
@@ -81,10 +81,9 @@ LCD for race display, web for configuration:
 ```
 StarForgeOS/
 ├── src/
-│   ├── main.cpp                 (mode selection)
+│   ├── main.cpp                 (startup)
 │   ├── timing_core.cpp/h        (existing - RX5808 + RSSI)
 │   ├── standalone_mode.cpp/h    (existing - web UI)
-│   ├── node_mode.cpp/h          (existing - RotorHazard protocol)
 │   └── display_mode.cpp/h       (NEW - LCD UI)
 └── hardware variants:
     ├── ESP32-C3 (compact, WiFi-only)
@@ -198,7 +197,7 @@ private:
 
 ### Scenario 3: Multi-Gate System
 - Multiple gates with displays
-- Central RotorHazard server
+- A central timing host
 - LCD shows local gate status
 - No phone needed at gate
 
@@ -244,7 +243,7 @@ private:
 4. **WiFi Usage**:
    - Configuration only?
    - Live web UI too?
-   - RotorHazard node mode?
+   - Local display only?
 
 Let me know which option sounds best and I can help integrate it into the main StarForge codebase!
 

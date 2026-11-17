@@ -31,7 +31,7 @@ StandaloneMode::StandaloneMode() : _timingCore(nullptr) {
     _webServer = new WebServerManager();
 
 #if ENABLE_BATTERY_MONITOR
-    // Battery monitoring only works in standalone mode (not in RotorHazard node mode)
+    // Battery monitoring
     #if defined(BATTERY_ADC_PIN)
         // Initialize battery monitoring (available on boards with or without LCD)
         _batteryMonitor = new BatteryMonitor();
@@ -71,7 +71,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _timingCore = timingCore;
 
 #if ENABLE_BATTERY_MONITOR
-    // Battery monitoring only works in standalone mode (not in RotorHazard node mode)
+    // Battery monitoring
     #if defined(BATTERY_ADC_PIN)
         // Initialize battery monitoring (available on boards with or without LCD)
         _batteryMonitor->begin();
@@ -232,7 +232,7 @@ void StandaloneMode::process() {
 
 #if ENABLE_BATTERY_MONITOR
     // Battery monitoring polling (works for both LCD and web GUI)
-    // Note: Battery monitoring only runs in standalone mode, never in RotorHazard node mode
+    // Battery monitoring
     // Update battery status every 5 seconds and share with both display systems
     if (_batteryMonitor != nullptr) {
         static unsigned long last_battery_update = 0;

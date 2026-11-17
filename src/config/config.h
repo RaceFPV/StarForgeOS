@@ -9,7 +9,6 @@
     #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
@@ -21,7 +20,6 @@
     #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     20    // GPIO20 - Mode selection switch
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      1     // GPIO1 - Built-in status LED (if present, optional)
@@ -33,7 +31,6 @@
     #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     // WS2812 RGB LED on GPIO10 - uses built-in neopixelWrite() function
@@ -48,7 +45,6 @@
     #define RX5808_DATA_PIN     6     // GPIO6 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      4     // GPIO4 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      7     // GPIO7 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     1     // GPIO1 - Mode selection switch
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC ignores this, but set for compatibility
     #define STATUS_LED_PIN      8     // GPIO8 - Built-in status LED (if present, optional)
@@ -64,7 +60,6 @@
     #define RX5808_DATA_PIN     17    // GPIO17 - DATA to RX5808
     #define RX5808_CLK_PIN      18    // GPIO18 - CLK to RX5808
     #define RX5808_SEL_PIN      21    // GPIO21 - LE (Latch Enable) to RX5808
-    #define MODE_SWITCH_PIN     0     // GPIO0 - Boot button (IGNORED - use LCD button for mode)
     #define POWER_BUTTON_PIN    0     // GPIO0 - Boot button (long press = deep sleep)
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
@@ -77,8 +72,7 @@
     #define RX5808_DATA_PIN     21    // GPIO21 - DATA to RX5808 (repurposed from touch interrupt)
     #define RX5808_CLK_PIN      16    // GPIO16 - CLK to RX5808 (available GPIO)
     #define RX5808_SEL_PIN      17    // GPIO17 - LE (Latch Enable) to RX5808 (available GPIO)
-    #define MODE_SWITCH_PIN     22    // GPIO22 - Mode selection (IGNORED on touch boards - use LCD button instead)
-    #define USB_DETECT_PIN      22    // GPIO22 - USB detection via D+ line monitoring (repurposed from mode switch)
+    #define USB_DETECT_PIN      22    // GPIO22 - USB detection via D+ line monitoring
     // BATTERY_ADC_PIN is defined later in the LCD UI section (GPIO34, repurposed from light sensor)
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility
     #define UART_BAUD_RATE      921600  // Fast baud rate (works with most UART bridges)
@@ -93,7 +87,6 @@
     #define RX5808_DATA_PIN     5    // GPIO11 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      7    // GPIO12 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      6    // GPIO10 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for WiFi mode, HIGH/floating for RotorHazard mode)
     #define USE_DMA_ADC         0     // Disabled for battery monitoring compatibility (DMA ADC conflicts with analogRead on ADC1)
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
 
@@ -125,7 +118,6 @@
     #define RX5808_DATA_PIN     11    // GPIO11 - DATA (SPI MOSI) to RX5808
     #define RX5808_CLK_PIN      12    // GPIO12 - CLK (SPI SCK) to RX5808
     #define RX5808_SEL_PIN      10    // GPIO13 - LE (Latch Enable / SPI CS) to RX5808
-    #define MODE_SWITCH_PIN     9     // GPIO9 - Mode selection switch (tie to GND for WiFi mode, HIGH/floating for RotorHazard mode)
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      921600  // USB CDC for serial communication
     #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
@@ -138,7 +130,6 @@
     #define RX5808_DATA_PIN     23    // GPIO23 (MOSI) - DATA to RX5808
     #define RX5808_CLK_PIN      18    // GPIO18 (SCK) - CLK to RX5808
     #define RX5808_SEL_PIN      5     // GPIO5 (CS) - LE (Latch Enable) to RX5808
-    #define MODE_SWITCH_PIN     33    // GPIO33 - Mode selection switch (with internal pullup)
     #define USE_DMA_ADC         1     // Enabled for best RSSI performance
     #define UART_BAUD_RATE      115200  // UART bridge baud rate
     // #define STATUS_LED_PIN      2     // GPIO2 - Built-in status LED (if present, optional)
@@ -146,12 +137,6 @@
     #define RSSI_HISTORY_SIZE   10000  // 10,000 samples = ~3.3 minutes @ 50Hz (50 KB) - reduced for ESP32-WROOM-32D stability
     #define RSSI_HISTORY_ENABLED 0     // Disable RSSI history for ESP32-WROOM-32D to prevent cache errors
 #endif
-
-// Mode selection (ESP32-C3 with pullup)
-// NOTE: On touch boards (ENABLE_LCD_UI), mode is controlled via LCD button instead of physical pin
-#define WIFI_MODE           LOW   // GND on switch pin = WiFi/Standalone mode
-#define ROTORHAZARD_MODE    HIGH  // HIGH (floating/pullup) = RotorHazard node mode (default)
-// Note: Floating (nothing connected) = ROTORHAZARD_MODE (default)
 
 // RX5808 frequency constants  
 #define MIN_FREQ            5645  // Minimum frequency (MHz)
@@ -292,7 +277,6 @@
 #endif
 
 // Battery monitoring configuration defaults
-// Note: Battery monitoring only works in standalone mode, not in RotorHazard node mode
 // If battery monitoring is enabled, ensure BATTERY_ADC_PIN is defined in board-specific config
 // or via build flags (e.g., -DBATTERY_ADC_PIN=1)
 // Runtime warning will be printed in standalone mode if pin is not defined

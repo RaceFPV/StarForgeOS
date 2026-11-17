@@ -47,7 +47,6 @@ The system uses a `config.json` file stored on the ESP32's SPIFFS filesystem. On
 - **RX5808 Data (MOSI)**: SPI data line to RX5808
 - **RX5808 Clock (SCK)**: SPI clock line to RX5808
 - **RX5808 Select (CS)**: SPI chip select for RX5808
-- **Mode Switch**: Pin to switch between standalone and RotorHazard modes
 
 #### Optional Pins (LCD Boards Only)
 - **Power Button**: Long press to enter deep sleep
@@ -82,7 +81,6 @@ ConfigLoader: Custom pin configuration loaded successfully!
   RX5808 Data: GPIO6
   RX5808 CLK: GPIO4
   RX5808 SEL: GPIO7
-  Mode Switch: GPIO1
 ```
 
 ## Reverting to Defaults
@@ -115,7 +113,6 @@ If you prefer to create `config.json` manually:
     "rx5808_data": 6,
     "rx5808_clk": 4,
     "rx5808_sel": 7,
-    "mode_switch": 1,
     "power_button": 0,
     "battery_adc": 0,
     "audio_dac": 0

@@ -162,7 +162,6 @@ Summary: 15 Tests 1 Failure
 - Pin configurations
 - ADC setup
 - SPI for RX5808
-- Mode switch
 - Power button
 
 ### ⏱️ Timing Tests (`test_timing/`)

@@ -45,7 +45,7 @@ private:
     WebServerManager* _webServer;
 
 #if ENABLE_BATTERY_MONITOR
-    // Battery monitoring (only available in standalone mode, not RotorHazard node mode)
+    // Battery monitoring
     // May be nullptr if BATTERY_ADC_PIN is not defined
     BatteryMonitor* _batteryMonitor;
 #endif

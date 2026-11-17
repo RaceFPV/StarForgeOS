@@ -8,14 +8,14 @@
 │  │   main.cpp     │  │  timing_core   │  │ standalone_mode│           │
 │  │                │  │  - RSSI read   │  │  - WiFi AP     │           │
 │  │  - Setup       │  │  - Lap detect  │  │  - Web server  │           │
-│  │  - Mode switch │  │  - RX5808      │  │  - mDNS        │           │
+│  │  - Wi-Fi start │  │  - RX5808      │  │  - mDNS        │           │
 │  └────────────────┘  └────────────────┘  └────────────────┘           │
 │                                                                          │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐           │
-│  │   lcd_ui       │  │   node_mode    │  │    config.h    │           │
-│  │  - Display     │  │  - RotorHazard │  │  - Pin defs    │           │
-│  │  - Touch       │  │  - Serial      │  │  - Board cfg   │           │
-│  │  - Battery     │  │  - Protocol    │  │  - Constants   │           │
+│  │   lcd_ui       │  │    config.h    │  │                │           │
+│  │  - Display     │  │  - Pin defs    │  │                │           │
+│  │  - Touch       │  │  - Board cfg   │  │                │           │
+│  │  - Battery     │  │  - Constants   │  │                │           │
 │  └────────────────┘  └────────────────┘  └────────────────┘           │
 └─────────────────────────────────────────────────────────────────────────┘
                                   │
@@ -37,8 +37,8 @@
 │  │  • Pin config   │  │  • RSSI reading │  │  • AP init      │        │
 │  │  • ADC setup    │  │  • Lap detect   │  │  • IP config    │        │
 │  │  • SPI pins     │  │  • Frequency    │  │  • SSID gen     │        │
-│  │  • Mode switch  │  │  • Threshold    │  │  • Stability    │        │
-│  │  • Power button │  │  • Thread safe  │  │  • Mode switch  │        │
+│  │  • Power button │  │  • Threshold    │  │  • Stability    │        │
+│  │  • UART config  │  │  • Thread safe  │  │  • AP/STA/off   │        │
 │  │                 │  │                 │  │                 │        │
 │  │  15+ tests      │  │  18+ tests      │  │  15+ tests      │        │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘        │

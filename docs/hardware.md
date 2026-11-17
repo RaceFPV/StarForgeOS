@@ -5,7 +5,6 @@
 ### Required Components
 - ESP32-C3 SuperMini development board
 - RX5808 FPV receiver module
-- Mode selection switch (GND=Node mode, 3.3V=WiFi mode)
 - Basic wiring supplies
 
 ### Pin Connections (ESP32-C3 SuperMini - Hertz-hunter Compatible)
@@ -22,23 +21,7 @@ GND          | GND          | Ground
 ```
 
 
-### Mode Switch (Optional)
-```
-ESP32-C3 Pin | Switch       | Description
--------------|--------------|-------------
-GPIO 1       | Common       | Mode selection
-Nothing      | Default      | RotorHazard node mode (floating)
-GND          | Position 1   | RotorHazard node mode
-3.3V         | Position 2   | WiFi standalone mode
-```
-
 <a href="NovaKit-rx5808-ver.png"><img src="NovaKit-rx5808-ver.png" width="300" alt="NovaKit RX5808 Hardware" /></a>
-
-**Important**: 
-- **Nothing connected** (floating) = RotorHazard node mode (default)
-- **GND connected** = RotorHazard node mode  
-- **3.3V connected** = WiFi standalone mode
-
 
 ## PCB Design Considerations
 
@@ -55,14 +38,12 @@ GND          | Position 1   | RotorHazard node mode
 
 ## Power Requirements
 - Input voltage: 5V USB or 3.3V direct
-- Current consumption (ESP32-C3):
-  - WiFi mode: ~120mA
-  - RotorHazard mode: ~60mA
+- Current consumption (ESP32-C3): about 120mA with Wi-Fi running
 - Use quality power supply for stable operation
 - ESP32-C3 is more power efficient than original ESP32
 
 ## Web Interface Setup
-The standalone mode requires web interface files to be uploaded to SPIFFS:
+The web interface files are uploaded to SPIFFS:
 ```bash
 # After uploading firmware, also upload web files:
 pio run -e esp32-c3-supermini --target uploadfs
@@ -70,7 +51,6 @@ pio run -e esp32-c3-supermini --target uploadfs
 Without this step, the web interface will show a blank page.
 
 ## Mechanical Considerations
-- Enclosure should allow WiFi signal in standalone mode
+- Enclosure should allow the Wi-Fi signal through
 - Status LED should be visible
-- Mode switch should be accessible
 - Mounting points for race gate installation

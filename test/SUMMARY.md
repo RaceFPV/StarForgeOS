@@ -18,7 +18,7 @@ A comprehensive test suite for StarForgeOS that ensures compatibility across **7
    - Pin definitions and configurations
    - ADC, SPI, I2C setup validation
    - Board-specific feature verification
-   - Mode switch and power button tests
+   - Power button tests
    - **15+ test cases**
 
 2. **`test/test_timing/test_timing_core.cpp`** - Timing Core Tests
@@ -33,7 +33,7 @@ A comprehensive test suite for StarForgeOS that ensures compatibility across **7
    - AP initialization and configuration
    - IP address management
    - SSID generation
-   - Mode switching
+   - Access point, station, and radio-off transitions
    - Stability and stress tests
    - **15+ test cases**
 
@@ -326,7 +326,6 @@ I2C device not found at 0x15
 ## Future Enhancements
 
 Potential additions to test suite:
-- [ ] Node mode / RotorHazard protocol tests
 - [ ] Web API endpoint tests
 - [ ] SPIFFS file system tests
 - [ ] OTA update tests

@@ -26,7 +26,7 @@ Then check serial monitor for results.
 
 ### Method 2: Serial Monitor
 
-1. Boot in WiFi mode (MODE_SWITCH_PIN to GND)
+1. Power the board on (it always starts in Wi-Fi mode)
 2. Open serial monitor at 921600 baud
 3. The test shows detailed analysis
 

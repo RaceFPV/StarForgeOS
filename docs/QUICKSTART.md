@@ -29,27 +29,6 @@ No need to manually upload the filesystem - it's all included!
 
 ---
 
-## ⚠️ IMPORTANT: Mode Switch Configuration
-
-**After flashing, your board boots into RotorHazard mode by default!**
-
-To access the **WiFi Web Interface** (Standalone Mode), you MUST configure the mode switch:
-
-### Option 1: Physical Mode Switch (Recommended)
-Connect a physical switch between the MODE_SWITCH_PIN and GND:
-- **Switch CLOSED (connected to GND)** = WiFi/Standalone Mode (Web Interface)
-- **Switch OPEN (floating/pullup)** = RotorHazard Node Mode (default)
-
-### Option 2: Hardwire to GND
-If you only want WiFi mode, permanently connect MODE_SWITCH_PIN to GND with a wire or jumper.
-
-### Option 3: LCD Touch Button (JC2432W328C only)
-If you have the JC2432W328C board with LCD, you can switch modes using the touchscreen button instead of a physical switch.
-
-**Without a mode switch or jumper to GND, you won't see the WiFi access point or web interface!**
-
----
-
 ## 📋 Hardware Pin Configurations
 
 ### ESP32-C3 SuperMini (Hertz-Hunter Compatible)
@@ -62,11 +41,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 | CLK (SCK) | GPIO 4 | SPI Clock to RX5808 |
 | SEL (CS/LE) | GPIO 7 | Latch Enable to RX5808 |
 
-**Control:**
-| Function | GPIO | Notes |
-|----------|------|-------|
-| Mode Switch | GPIO 1 | Connect to GND for WiFi mode |
-
 ---
 
 ### ESP32 Dev Module (Generic ESP32-WROOM)
@@ -78,11 +52,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 | DATA (MOSI) | GPIO 23 | SPI Data to RX5808 |
 | CLK (SCK) | GPIO 18 | SPI Clock to RX5808 |
 | SEL (CS/LE) | GPIO 5 | Latch Enable to RX5808 |
-
-**Control:**
-| Function | GPIO | Notes |
-|----------|------|-------|
-| Mode Switch | GPIO 33 | Connect to GND for WiFi mode |
 
 ---
 
@@ -99,7 +68,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 **Control:**
 | Function | GPIO | Notes |
 |----------|------|-------|
-| Mode Switch | GPIO 22 | Connect to GND for WiFi mode (or use LCD button) |
 | Power Button | GPIO 22 | Momentary button to GND (long press = sleep) |
 
 **Battery Monitoring (Optional):**
@@ -115,15 +83,12 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 
 ### 1. Wire Your Hardware
 - Connect your RX5808 module using the pin configuration for your board (see above)
-- **IMPORTANT:** Connect MODE_SWITCH_PIN to GND (or install a physical switch)
 - Connect VTX video transmitter to your quad
 
 ### 2. Power On
-- The board will boot in the mode determined by your MODE_SWITCH_PIN
-- **GND = WiFi Mode** (you'll see "SFOS-XXXXXX" WiFi network appear)
-- **Floating = RotorHazard Mode** (no WiFi network, ready for RotorHazard connection)
+- The board starts its Wi-Fi access point. Look for `SFOS-XXXXXX`.
 
-### 3. Connect to WiFi (Standalone Mode)
+### 3. Connect to WiFi
 1. Look for WiFi network: `SFOS-XXXXXX` (where XXXXXX is part of your board's MAC address)
 2. Connect to it (open network, no password)
 3. Open browser to: `http://192.168.4.1` or `http://sfos.local`
@@ -154,7 +119,6 @@ If you have the JC2432W328C board with LCD, you can switch modes using the touch
 ## 🔧 Troubleshooting
 
 ### "I don't see the WiFi network"
-- Check that MODE_SWITCH_PIN is connected to GND
 - Verify power to the board (LED should be lit)
 - Try factory reset (hold power button for 3s on LCD boards)
 
@@ -193,12 +157,6 @@ Install a 2:1 voltage divider on GPIO34 to monitor your 1S LiPo battery:
 - **Long press (3s):** Enter deep sleep mode
 - Saves battery when not racing
 
-### RotorHazard Node Mode
-Connect MODE_SWITCH_PIN to 3.3V (or leave floating) to use as a RotorHazard node:
-- Compatible with RotorHazard race timing system
-- Automatic frequency synchronization
-- Multi-node support for multiple gates
-
 ---
 
 ## 📞 Need Help?
@@ -215,10 +173,6 @@ Connect MODE_SWITCH_PIN to 3.3V (or leave floating) to use as a RotorHazard node
 ┌─────────────────────────────────────────────┐
 │  STARFORGE OS - QUICK REFERENCE            │
 ├─────────────────────────────────────────────┤
-│  MODE SWITCH:                               │
-│  • GND = WiFi/Web Interface                 │
-│  • Floating/3.3V = RotorHazard Node         │
-│                                             │
 │  WEB INTERFACE:                             │
 │  • WiFi: SFOS-XXXXXX (open network)         │
 │  • URL: http://192.168.4.1                  │

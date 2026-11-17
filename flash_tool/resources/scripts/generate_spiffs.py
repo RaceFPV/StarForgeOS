@@ -138,8 +138,7 @@ def main():
                 "rssi_input": 3,
                 "rx5808_data": 6,
                 "rx5808_clk": 4,
-                "rx5808_sel": 7,
-                "mode_switch": 1
+                "rx5808_sel": 7
             }
         }, indent=2))
         sys.exit(1)

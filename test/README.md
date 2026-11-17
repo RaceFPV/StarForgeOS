@@ -25,7 +25,6 @@ Tests that verify board-specific pin configurations and hardware features:
 - **ADC Configuration**: Tests RSSI input and battery monitoring (if applicable)
 - **SPI Configuration**: Validates RX5808 control pins
 - **I2C Configuration**: Tests touch controller I2C bus (LCD boards only)
-- **Mode Switch**: Verifies mode selection mechanism (physical pin or LCD button)
 - **Power Management**: Tests power button and deep sleep (if applicable)
 
 **Run command:**
@@ -60,7 +59,7 @@ Tests WiFi functionality in standalone mode:
 - **AP Initialization**: Tests WiFi Access Point startup
 - **IP Configuration**: Verifies correct IP assignment
 - **SSID Generation**: Tests unique SSID generation from MAC
-- **Mode Switching**: Validates WiFi mode changes
+- **Wi-Fi radio modes**: Validates access-point, station, and off transitions
 - **Stability**: Tests WiFi reliability over time
 - **Power Management**: Verifies WiFi sleep modes
 - **mDNS**: Tests hostname configuration

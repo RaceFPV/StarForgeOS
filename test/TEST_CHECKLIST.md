@@ -25,7 +25,6 @@ Use this checklist when making changes to StarForgeOS to ensure compatibility ac
 - [ ] WiFi initializes before timing task
 - [ ] No watchdog timeouts during operation
 - [ ] Serial communication not blocked by timing task
-- [ ] Mode switching works smoothly
 
 ### Dual-Core Boards (ESP32, ESP32-S3)
 - [ ] Timing and web server run concurrently
@@ -36,7 +35,6 @@ Use this checklist when making changes to StarForgeOS to ensure compatibility ac
 - [ ] Display initializes correctly
 - [ ] Touch input responsive
 - [ ] Backlight control works
-- [ ] Mode switch button functional
 - [ ] Battery percentage displays (if applicable)
 - [ ] Audio beeps on laps (ESP32 only)
 
@@ -53,7 +51,6 @@ Use this checklist when making changes to StarForgeOS to ensure compatibility ac
 - [ ] `test_board_identification` passes
 - [ ] `test_rssi_pin_defined` passes
 - [ ] `test_rx5808_pins_defined` passes
-- [ ] `test_mode_switch_pin` passes (non-LCD boards)
 - [ ] `test_timing_constants` passes
 - [ ] `test_freertos_priorities` passes
 - [ ] `test_dma_adc_config` passes
@@ -140,8 +137,7 @@ Use this checklist when making changes to StarForgeOS to ensure compatibility ac
 3. Test touch responsiveness
 4. Toggle backlight
 5. Check battery percentage (if applicable)
-6. Test mode switch button
-7. Verify lap display updates
+6. Verify lap display updates
 
 ## Regression Testing
 

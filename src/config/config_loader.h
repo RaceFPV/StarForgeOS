@@ -13,7 +13,6 @@ struct CustomPinConfig {
     uint8_t rx5808_data_pin = 0;        // SPI MOSI to RX5808
     uint8_t rx5808_clk_pin = 0;         // SPI SCK to RX5808
     uint8_t rx5808_sel_pin = 0;         // SPI CS to RX5808
-    uint8_t mode_switch_pin = 0;        // Mode selection switch
     
     // Optional pins (LCD boards)
     uint8_t power_button_pin = 0;       // Power button (long press = sleep)

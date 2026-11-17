@@ -69,31 +69,6 @@ void test_rx5808_pins_defined(void) {
 }
 
 /**
- * Test: Verify mode switch pin (if applicable)
- */
-void test_mode_switch_pin(void) {
-    #if !ENABLE_LCD_UI
-        // Only test on boards without LCD UI (which use physical switch)
-        #ifdef MODE_SWITCH_PIN
-            TEST_ASSERT_TRUE(MODE_SWITCH_PIN >= 0);
-            
-            pinMode(MODE_SWITCH_PIN, INPUT_PULLUP);
-            
-            // Read the pin state
-            int state = digitalRead(MODE_SWITCH_PIN);
-            TEST_ASSERT_TRUE(state == HIGH || state == LOW);
-            
-            TEST_MESSAGE("Mode switch pin configured successfully");
-        #else
-            TEST_FAIL_MESSAGE("MODE_SWITCH_PIN not defined for this board");
-        #endif
-    #else
-        TEST_MESSAGE("Board uses LCD UI for mode selection - skipping physical pin test");
-        TEST_PASS();
-    #endif
-}
-
-/**
  * Test: Verify UART baud rate is sensible
  */
 void test_uart_baud_rate(void) {
@@ -346,7 +321,6 @@ void setup() {
     RUN_TEST(test_board_identification);
     RUN_TEST(test_rssi_pin_defined);
     RUN_TEST(test_rx5808_pins_defined);
-    RUN_TEST(test_mode_switch_pin);
     RUN_TEST(test_uart_baud_rate);
     
     // Configuration constant tests

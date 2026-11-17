@@ -5,7 +5,6 @@
     "rx5808_data": 6,
     "rx5808_clk": 4,
     "rx5808_sel": 7,
-    "mode_switch": 1,
     "power_button": 0,
     "battery_adc": 0,
     "audio_dac": 0,
