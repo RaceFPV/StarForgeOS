@@ -2,6 +2,10 @@
 
 #if ENABLE_LCD_UI
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+#include "../aws/ota.h"
+#endif
+
 #include "../config/config_globals.h"
 #include "../hardware/CST820.h"
 #if ENABLE_AUDIO
@@ -50,7 +54,12 @@ LcdUI::LcdUI() :
                  _finishActive(false), _finishStartTime(0),
                  _startCallback(nullptr), _stopCallback(nullptr), _clearCallback(nullptr),
                  _settingsChangedCallback(nullptr),
-                 _lastGraphUpdate(0), _lastScrollTime(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100) {
+                 _lastGraphUpdate(0), _lastScrollTime(0), _lastTouchTime(0), _screenDimmed(false), _userBrightness(100)
+#if defined(BOARD_ESP32_S3_TOUCH)
+                 , offer_label(nullptr), progress_overlay(nullptr), progress_label(nullptr),
+                 ota_mbox(nullptr), _ota_shown{}, _ota_shown_pct(-2)
+#endif
+{
     _instance = this;
 }
 
@@ -1250,6 +1259,112 @@ void LcdUI::stopFinish() {
     }
 }
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+void LcdUI::offer_long_event(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED || !_instance) {
+        return;
+    }
+    if (_instance->ota_mbox || _instance->progress_overlay) {
+        return;
+    }
+    const char *version = sf_ota_offer_version();
+    if (!version || version[0] == '\0') {
+        return;
+    }
+    char text[160];
+    snprintf(text, sizeof(text),
+             "Firmware %s.\nThe current session ends and unsaved laps are lost.",
+             version);
+    static const char *btns[] = {"Install", "Cancel", ""};
+    _instance->ota_mbox = lv_msgbox_create(lv_layer_top(), "Install firmware", text, btns, false);
+    lv_obj_add_event_cb(_instance->ota_mbox, ota_mbox_event, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_center(_instance->ota_mbox);
+}
+
+void LcdUI::ota_mbox_event(lv_event_t* e) {
+    if (!_instance) {
+        return;
+    }
+    lv_obj_t *mbox = lv_event_get_current_target(e);
+    if (lv_msgbox_get_active_btn(mbox) == 0) {
+        sf_ota_request_apply();
+    }
+    lv_msgbox_close(mbox);
+    _instance->ota_mbox = nullptr;
+}
+
+void LcdUI::serviceOta() {
+    int pct = sf_ota_progress_pct();
+    if (pct >= 0) {
+        if (ota_mbox) {
+            lv_msgbox_close(ota_mbox);
+            ota_mbox = nullptr;
+        }
+        if (offer_label) {
+            lv_obj_add_flag(offer_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (!progress_overlay) {
+            progress_overlay = lv_obj_create(lv_layer_top());
+            lv_obj_set_size(progress_overlay, 240, 320);
+            lv_obj_set_pos(progress_overlay, 0, 0);
+            lv_obj_set_style_bg_color(progress_overlay, lv_color_hex(0x000000), 0);
+            lv_obj_set_style_bg_opa(progress_overlay, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(progress_overlay, 0, 0);
+            lv_obj_clear_flag(progress_overlay, LV_OBJ_FLAG_SCROLLABLE);
+            progress_label = lv_label_create(progress_overlay);
+            lv_obj_set_width(progress_label, 220);
+            lv_label_set_long_mode(progress_label, LV_LABEL_LONG_WRAP);
+            lv_obj_set_style_text_font(progress_label, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(progress_label, lv_color_hex(0xffffff), 0);
+            lv_obj_set_style_text_align(progress_label, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(progress_label, LV_ALIGN_CENTER, 0, 0);
+            _ota_shown_pct = -2;
+        }
+        if (pct != _ota_shown_pct && progress_label) {
+            char line[64];
+            snprintf(line, sizeof(line), "Updating %d%% - do not power off", pct);
+            lv_label_set_text(progress_label, line);
+            _ota_shown_pct = pct;
+        }
+        return;
+    }
+
+    if (progress_overlay) {
+        lv_obj_del(progress_overlay);
+        progress_overlay = nullptr;
+        progress_label = nullptr;
+        _ota_shown_pct = -2;
+    }
+
+    const char *version = sf_ota_offer_version();
+    if (!version || version[0] == '\0') {
+        if (offer_label) {
+            lv_obj_add_flag(offer_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        _ota_shown[0] = '\0';
+        return;
+    }
+    if (!offer_label) {
+        offer_label = lv_label_create(lv_layer_top());
+        lv_obj_set_width(offer_label, 228);
+        lv_obj_set_pos(offer_label, 6, 276);
+        lv_label_set_long_mode(offer_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(offer_label, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_color(offer_label, lv_color_hex(0xffcc00), 0);
+        lv_obj_set_style_text_align(offer_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_add_flag(offer_label, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(offer_label, offer_long_event, LV_EVENT_LONG_PRESSED, nullptr);
+    }
+    if (strcmp(_ota_shown, version) != 0) {
+        char line[96];
+        snprintf(line, sizeof(line), "Firmware %s available - long-press to install", version);
+        lv_label_set_text(offer_label, line);
+        snprintf(_ota_shown, sizeof(_ota_shown), "%s", version);
+    }
+    lv_obj_clear_flag(offer_label, LV_OBJ_FLAG_HIDDEN);
+}
+#endif
+
 // UI task (runs in separate FreeRTOS task)
 void LcdUI::uiTask(void* parameter) {
     LcdUI* ui = (LcdUI*)parameter;
@@ -1266,6 +1381,11 @@ void LcdUI::uiTask(void* parameter) {
         if (ui && ui->_finishActive) {
             ui->updateFinish();
         }
+#if defined(BOARD_ESP32_S3_TOUCH)
+        if (ui) {
+            ui->serviceOta();
+        }
+#endif
         
 #if defined(BOARD_ESP32_S3_TOUCH)
         // For ESP32-S3-Touch with direct_mode: draw entire buffer to display

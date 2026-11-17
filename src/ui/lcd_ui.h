@@ -169,6 +169,18 @@ private:
     static void threshold_dec_event(lv_event_t* e);
     static void threshold_inc_event(lv_event_t* e);
     static void brightness_slider_event(lv_event_t* e);
+
+#if defined(BOARD_ESP32_S3_TOUCH)
+    lv_obj_t* offer_label;
+    lv_obj_t* progress_overlay;
+    lv_obj_t* progress_label;
+    lv_obj_t* ota_mbox;
+    char _ota_shown[96];
+    int _ota_shown_pct;
+    void serviceOta();
+    static void offer_long_event(lv_event_t* e);
+    static void ota_mbox_event(lv_event_t* e);
+#endif
     
     // Create UI elements
     void createUI();

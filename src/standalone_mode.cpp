@@ -1,4 +1,5 @@
 #include "standalone_mode.h"
+#include <atomic>
 #include "config/config_globals.h"
 #include "settings/settings_manager.h"
 #include "settings/wifi_manager.h"
@@ -213,17 +214,80 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     Serial.println("Setup complete!");
 }
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+static std::atomic<bool> s_update_held{false};
+static bool s_timing_was_active = false;
+static std::atomic<bool> s_discard_laps{false};
+
+void StandaloneMode::holdTimingForUpdate() {
+    if (s_update_held) {
+        return;
+    }
+    s_update_held = true;
+    if (_lcdInstance && _lcdInstance->_timingCore) {
+        s_timing_was_active = _lcdInstance->_timingCore->pauseTemporarily();
+    }
+    s_discard_laps.store(true);
+    for (int i = 0; i < 100 && s_discard_laps.load(); i++) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void StandaloneMode::releaseTimingAfterUpdate() {
+    if (!s_update_held) {
+        return;
+    }
+    s_update_held = false;
+    if (_lcdInstance && _lcdInstance->_timingCore) {
+        _lcdInstance->_timingCore->resumeFromPause(s_timing_was_active);
+    }
+}
+#endif
+
 void StandaloneMode::process() {
 #if defined(BOARD_ESP32_S3_TOUCH)
     sf_ota_service_tick(_raceActive);
     sf_wifi_sta_poll(_raceActive);
+    bool was_racing = _raceActive;
+    if (s_update_held) {
+        _raceActive = false;
+        if (_timingCore) {
+            while (_timingCore->hasNewLap()) {
+                _timingCore->getNextLap();
+            }
+        }
+    }
     // Both the LCD stop button and /api/stop_race only clear _raceActive.
+    // An apply does the same, after copying the lap count for the usage record.
     {
         static bool was_active = false;
-        if (was_active && !_raceActive) {
+        if (s_discard_laps.exchange(false)) {
+            uint32_t n = static_cast<uint32_t>(_laps.size());
+            bool was = was_racing || was_active;
+            _raceActive = false;
+            _laps.clear();
+            if (_timingCore) {
+                while (_timingCore->hasNewLap()) {
+                    _timingCore->getNextLap();
+                }
+            }
+#if ENABLE_LCD_UI
+            if (_lcdUI) {
+                _lcdUI->updateRaceStatus(false);
+                _lcdUI->updateLapCount(0);
+                _lcdUI->updateLapTimes(_laps);
+            }
+#endif
+            if (was) {
+                sf_usage_race_completed(n);
+            }
+            was_active = false;
+        } else if (was_active && !_raceActive) {
             sf_usage_race_completed(static_cast<uint32_t>(_laps.size()));
+            was_active = _raceActive;
+        } else {
+            was_active = _raceActive;
         }
-        was_active = _raceActive;
     }
 #endif
 
@@ -345,6 +409,11 @@ void StandaloneMode::saveSettings() {
 #if ENABLE_LCD_UI
 // LCD button callbacks (static, called from LCD UI task)
 void StandaloneMode::lcdStartCallback() {
+#if defined(BOARD_ESP32_S3_TOUCH)
+    if (s_update_held) {
+        return;
+    }
+#endif
     if (_lcdInstance) {
         _lcdInstance->_raceActive = true;
         _lcdInstance->_raceStartTime = millis();

@@ -3,6 +3,7 @@
 #if defined(BOARD_ESP32_S3_TOUCH)
 
 #include "config/config.h"
+#include "aws/aws_iot.h"
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -209,6 +210,9 @@ void on_connected(void) {
     s_logged_joining = false;
     s_logged_error[0] = '\0';
     Serial.printf("STA connected, ip %s\n", ip);
+#if defined(SF_DEBUG_HEAP)
+    sf_aws_log_heap("wifi connected");
+#endif
 
     if (!s_mdns_on_sta) {
         MDNS.end();

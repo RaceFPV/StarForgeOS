@@ -33,6 +33,13 @@ public:
     void process();
     void saveSettings();  // Public so LCD UI can call it
 
+#if defined(BOARD_ESP32_S3_TOUCH)
+    // Stop the timing loop and drop the in-RAM session. The main loop finishes
+    // clearing laps. releaseTimingAfterUpdate() starts the loop again.
+    static void holdTimingForUpdate();
+    static void releaseTimingAfterUpdate();
+#endif
+
 private:
     TimingCore* _timingCore;
     std::vector<LapData> _laps;

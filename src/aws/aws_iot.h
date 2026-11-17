@@ -14,6 +14,8 @@ void sf_aws_start(const SfAwsCreds *creds);
 const char *sf_aws_root_ca(void);
 int sf_aws_publish_qos1(void *client, const char *topic, const char *payload);
 bool sf_aws_puback_is(int msg_id);
+// Prints the four heap numbers when SF_DEBUG_HEAP is defined. Otherwise empty.
+void sf_aws_log_heap(const char *where);
 #endif
 
 #endif
