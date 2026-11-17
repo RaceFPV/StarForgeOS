@@ -297,35 +297,9 @@ RUN npm install
 # docker run --device=/dev/ttyUSB0 -e DISPLAY=:99 ...
 ```
 
-## CI/CD Integration
+## Running on a machine with a board
 
-### GitHub Actions (Self-Hosted Runner)
-
-For hardware testing, you need a self-hosted runner with USB access:
-
-```yaml
-name: Test Flash Tool Hardware
-
-on: [push]
-
-jobs:
-  test-hardware:
-    runs-on: self-hosted  # Your homelab server
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup virtual display
-      run: |
-        export DISPLAY=:99
-        Xvfb :99 -screen 0 1024x768x24 &
-    
-    - name: Run tests
-      working-directory: flash_tool
-      run: |
-        export DISPLAY=:99
-        ./test/run-headless-tests.sh
-```
+These checks need a serial port and an ESP32. They are not run in GitHub Actions. The Mac and Windows app builds run in `.github/workflows/build-flasher.yml`.
 
 ### GitLab CI
 

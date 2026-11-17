@@ -4,11 +4,7 @@ This directory contains test utilities for testing the StarForge Flash Tool on h
 
 ## Overview
 
-The flash tool is an Electron GUI application, but these tests allow you to:
-- Test the core flashing functionality without a GUI
-- Run automated tests against real ESP32 hardware
-- Use in CI/CD pipelines on headless servers
-- Validate firmware builds automatically
+The flash tool is an Electron GUI application. These scripts exercise flashing against a real ESP32 on a machine that has the board plugged in.
 
 ## Test Setup
 
@@ -98,50 +94,11 @@ node test/headless-test-runner.js --detect-chip --port /dev/ttyUSB0
 node test/headless-test-runner.js --port /dev/ttyUSB0 --board esp32-c3 --firmware ./firmware/
 ```
 
-## CI/CD Integration
+## Running on a machine with a board
 
-### GitHub Actions Example
+These checks need a serial port, an ESP32, and a `firmware.bin`. GitHub-hosted runners have none of those, so they are not part of CI. The Mac and Windows app builds run in `.github/workflows/build-flasher.yml`.
 
-```yaml
-name: Test Flash Tool
-
-on: [push, pull_request]
-
-jobs:
-  test-flash-tool:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-    
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb
-        cd flash_tool
-        npm install
-    
-    - name: Setup virtual display
-      run: |
-        export DISPLAY=:99
-        Xvfb :99 -screen 0 1024x768x24 &
-    
-    - name: Run tests
-      run: |
-        export DISPLAY=:99
-        cd flash_tool
-        node test/flash-test-suite.js
-      env:
-        TEST_PORT: ${{ secrets.TEST_SERIAL_PORT }}
-        TEST_FIRMWARE_DIR: ./test-firmware
-```
-
-### Local CI Server Setup
+### Local server setup
 
 1. **Install dependencies on server:**
    ```bash
