@@ -28,19 +28,28 @@
     "url": "https://github.com/RaceFPV/StarForgeOS.git"
   },
   "dependencies": {
-    "axios": "^1.6.2",
+    "axios": "^1.21.1",
     "serialport": "^12.0.0",
-    "extract-zip": "^2.0.1"
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "cli-truncate": "2.1.0",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "electron-builder-squirrel-windows": "24.13.3"
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "electron-builder-squirrel-windows": "26.18.0"
   },
   "allowScripts": {
     "electron": true,
+    "electron-winstaller": true,
     "@serialport/bindings-cpp": true
+  },
+  "overrides": {
+    "@electron/universal": {
+      "minimatch": "11.0.9"
+    },
+    "app-builder-lib": {
+      "minimatch": "11.0.9"
+    }
   },
   "build": {
     "appId": "io.racefpv.starforge-flash-tool",

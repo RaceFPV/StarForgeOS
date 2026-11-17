@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs').promises;
 const { SerialPort } = require('serialport');
 const axios = require('axios');
-const extractZip = require('extract-zip');
+const yauzl = require('yauzl');
 
 let mainWindow;
 
@@ -493,6 +493,65 @@ ipcMain.handle('fetch-github-releases', async () => {
   }
 });
 
+// Extract a firmware zip without following symlinks or paths outside destDir.
+function extractFirmwareZip(zipPath, destDir) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      let settled = false;
+      const finish = (error) => {
+        if (settled) return;
+        settled = true;
+        zipfile.close();
+        if (error) reject(error);
+        else resolve();
+      };
+      const destRoot = path.resolve(destDir);
+      zipfile.on('error', finish);
+      zipfile.on('end', () => finish());
+      zipfile.on('entry', (entry) => {
+        const name = entry.fileName.replace(/\\/g, '/');
+        if (name.startsWith('/') || name.split('/').includes('..')) {
+          finish(new Error(`Unsafe path in firmware zip: ${entry.fileName}`));
+          return;
+        }
+        const unixMode = (entry.externalFileAttributes >> 16) & 0o170000;
+        if (unixMode === 0o120000) {
+          finish(new Error(`Symlink in firmware zip: ${entry.fileName}`));
+          return;
+        }
+        const outPath = path.resolve(destRoot, name);
+        if (outPath !== destRoot && !outPath.startsWith(destRoot + path.sep)) {
+          finish(new Error(`Unsafe path in firmware zip: ${entry.fileName}`));
+          return;
+        }
+        const writeEntry = name.endsWith('/')
+          ? fs.mkdir(outPath, { recursive: true })
+          : fs.mkdir(path.dirname(outPath), { recursive: true }).then(() => new Promise((res, rej) => {
+            zipfile.openReadStream(entry, (streamErr, stream) => {
+              if (streamErr) {
+                rej(streamErr);
+                return;
+              }
+              const writer = require('fs').createWriteStream(outPath);
+              stream.on('error', rej);
+              writer.on('error', rej);
+              writer.on('finish', res);
+              stream.pipe(writer);
+            });
+          }));
+        writeEntry.then(() => {
+          if (!settled) zipfile.readEntry();
+        }).catch(finish);
+      });
+      zipfile.readEntry();
+    });
+  });
+}
+
 // Download firmware
 ipcMain.handle('download-firmware', async (event, url, boardType) => {
   try {
@@ -542,7 +601,7 @@ ipcMain.handle('download-firmware', async (event, url, boardType) => {
     
     // Extract to fresh directory
     event.sender.send('flash-progress', `Extracting firmware...\n`);
-    await extractZip(zipPath, { dir: extractPath });
+    await extractFirmwareZip(zipPath, extractPath);
     event.sender.send('flash-progress', `✓ Firmware extracted to: ${extractPath}\n`);
     
     return {
