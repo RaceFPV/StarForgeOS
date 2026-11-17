@@ -1,12 +1,12 @@
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "config/config.h"
 #include "config/config_loader.h"
 #include "timing_core.h"
 #include "standalone_mode.h"
-#include <WiFi.h>
-#include <SPIFFS.h>
 #include <nvs_flash.h>
-#include <nvs_flash.h>
+#include "esp_sleep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 // Compile-time board detection verification
 #if defined(BOARD_ESP32_S3_TOUCH)
@@ -21,7 +21,7 @@
     #pragma message "BUILD: ESP32-C3 Zero detected"
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
     #pragma message "BUILD: ESP32-C6 detected"
-#elif defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
     #pragma message "BUILD: ESP32-C3 detected"
 #else
     #pragma message "BUILD: Generic ESP32 detected"
@@ -76,12 +76,8 @@ void enterDeepSleep();
 #endif
 
 void setup() {
-  Serial.begin(UART_BAUD_RATE);
-  delay(200);  // Longer delay to ensure all ESP-IDF boot messages complete
-  
-  while (Serial.available()) {
-    Serial.read();
-  }
+  hal_delay_ms(200);
+  log_fmt("StarForge %s\n", SF_FW_VERSION);
   
   // Initialize NVS (Non-Volatile Storage) early
   // This is needed for WiFi calibration and other system settings
@@ -141,48 +137,48 @@ void setup() {
   }
   
   if (ConfigLoader::hasCustomConfig()) {
-    Serial.println("Using custom pin configuration from NVS");
+    log_line("Using custom pin configuration from NVS");
   } else {
-    Serial.println("Using default pin configuration from config.h");
+    log_line("Using default pin configuration from config.h");
   }
   
-  Serial.println("\n=== BOARD CONFIGURATION ===");
+  log_line("\n=== BOARD CONFIGURATION ===");
     #if defined(BOARD_ESP32_S3_TOUCH)
-      Serial.println("Board: Waveshare ESP32-S3-Touch-LCD-2");
-      Serial.printf("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
-      Serial.printf("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
+      log_line("Board: Waveshare ESP32-S3-Touch-LCD-2");
+      log_fmt("LCD Backlight Pin: %d\n", LCD_BACKLIGHT);
+      log_fmt("LCD I2C SDA: %d, SCL: %d\n", LCD_I2C_SDA, LCD_I2C_SCL);
     #elif defined(BOARD_JC2432W328C)
-      Serial.println("Board: JC2432W328C");
+      log_line("Board: JC2432W328C");
     #else
-      Serial.println("Board: Generic ESP32");
+      log_line("Board: Generic ESP32");
     #endif
-  Serial.println("===========================\n");
+  log_line("===========================\n");
   
-  delay(1000); // Give everything time to start up
-  Serial.println();
-  Serial.println("=== StarForge ESP32 Timer ===");
-  Serial.println();
-  Serial.println("Mode: WIFI");
-  Serial.println("Initializing timing core...");
+  hal_delay_ms(1000); // Give everything time to start up
+  log_line("");
+  log_line("=== StarForge ESP32 Timer ===");
+  log_line("");
+  log_line("Mode: WIFI");
+  log_line("Initializing timing core...");
   
 #if ENABLE_POWER_BUTTON
   // Initialize power button (pin 22 on JC2432W328C)
-  pinMode(g_power_button_pin, INPUT_PULLUP);
+  hal_gpio_input_pullup(g_power_button_pin);
   
   // Configure deep sleep wake-up on power button press (active LOW)
   esp_sleep_enable_ext0_wakeup((gpio_num_t)g_power_button_pin, 0);  // Wake when pin goes LOW
   
-  Serial.printf("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
+  log_fmt("Power button enabled on GPIO%d (long press = sleep)\n", g_power_button_pin);
 #endif
   
   timing.setDebugMode(true);
   
   // Start WiFi before the timing task so ESP32-WROOM-32D cache stays stable
   initializeMode();
-  delay(500);
+  hal_delay_ms(500);
   timing.begin();
   timing.setActivated(true);
-  Serial.println("Timing core activated and running");
+  log_line("Timing core activated and running");
 }
 
 void loop() {
@@ -197,44 +193,44 @@ void loop() {
 }
 
 void initializeMode() {
-  Serial.println("=== WIFI MODE ACTIVE ===");
+  log_line("=== WIFI MODE ACTIVE ===");
   standalone.begin(&timing);
-  Serial.println();
+  log_line("");
 }
 
 #if ENABLE_POWER_BUTTON
 // Check power button state and handle long press for deep sleep
 void checkPowerButton() {
-  bool button_state = digitalRead(g_power_button_pin);
+  bool button_state = hal_gpio_read(g_power_button_pin);
   
   // Button pressed (active LOW)
-  if (button_state == LOW) {
+  if (button_state == 0) {
     if (!power_button_pressed) {
       // Button just pressed - start timing
-      power_button_press_start = millis();
+      power_button_press_start = hal_millis();
       power_button_pressed = true;
       deep_sleep_initiated = false;
     } else {
       // Button held down - check duration
-      unsigned long press_duration = millis() - power_button_press_start;
+      unsigned long press_duration = hal_millis() - power_button_press_start;
       
       if (press_duration >= POWER_BUTTON_LONG_PRESS_MS && !deep_sleep_initiated) {
         // Long press detected - enter deep sleep
         deep_sleep_initiated = true;
-        Serial.println("Power button long press detected - entering deep sleep...");
-        Serial.println("Press power button to wake up");
-        delay(100);  // Let serial output complete
+        log_line("Power button long press detected - entering deep sleep...");
+        log_line("Press power button to wake up");
+        hal_delay_ms(100);  // Let serial output complete
         enterDeepSleep();
       }
     }
   } else {
     // Button released
     if (power_button_pressed) {
-      unsigned long press_duration = millis() - power_button_press_start;
+      unsigned long press_duration = hal_millis() - power_button_press_start;
       
       // Short press - could be used for other functions if needed
       if (press_duration < POWER_BUTTON_LONG_PRESS_MS && press_duration > 50) {
-        Serial.printf("Power button short press (%lu ms) - ignored\n", press_duration);
+        log_fmt("Power button short press (%lu ms) - ignored\n", press_duration);
         // Optional: Could show a menu or toggle something here
       }
       
@@ -248,20 +244,24 @@ void checkPowerButton() {
 void enterDeepSleep() {
 #if ENABLE_LCD_UI
   // Turn off backlight to save power
-  digitalWrite(g_lcd_backlight, LOW);
+  hal_gpio_write(g_lcd_backlight, 0);
   
   // Show sleep message on LCD if possible
   // (Could add a simple "Sleeping..." message to lcd_ui if desired)
 #endif
   
-  // Flush serial
-  Serial.flush();
+  fflush(stdout);
   
   // Enter deep sleep - wake on power button press
   // The esp_sleep_enable_ext0_wakeup() was already configured in setup()
   esp_deep_sleep_start();
-  
-  // Code never reaches here - ESP32 will reset on wake
 }
 #endif
+
+extern "C" void app_main(void) {
+  setup();
+  while (true) {
+    loop();
+  }
+}
 

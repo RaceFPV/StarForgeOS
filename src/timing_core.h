@@ -1,9 +1,12 @@
 #ifndef TIMING_CORE_H
 #define TIMING_CORE_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include <cstdint>
 #include "config/config.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_adc/adc_continuous.h"
 #include "filters/kalman.h"
 

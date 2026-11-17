@@ -5,16 +5,8 @@
 
 #if ENABLE_LCD_UI
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include <lvgl.h>
-
-// Conditional display library includes
-#if defined(BOARD_ESP32_S3_TOUCH)
-    #include <Arduino_GFX_Library.h>
-#else
-    #include <TFT_eSPI.h>
-#endif
-
 #include "../timing_core.h"
 #include <vector>
 
@@ -52,13 +44,6 @@ public:
     static void uiTask(void* parameter);
     
 private:
-    // Display and touch objects (conditional based on board)
-    #if defined(BOARD_ESP32_S3_TOUCH)
-        Arduino_DataBus* bus;
-        Arduino_GFX* gfx;
-    #else
-        TFT_eSPI* tft;
-    #endif
     CST820* touch;
     TimingCore* _timingCore;  // For accessing RX5808 settings
     

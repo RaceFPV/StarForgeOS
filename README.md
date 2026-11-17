@@ -1,6 +1,6 @@
 # StarForge - ESP32 Drone Race Timing System
 
-**A Wi-Fi FPV race timer** built on ESP32. Power it on, join the access point, and time laps from a phone or laptop.
+**A Wi-Fi FPV race timer** for ESP32, version 3.0.0. The firmware is native ESP-IDF. Power it on, join the access point, and time laps from a phone or laptop.
 
 > **📚 [Quick Start Guide →](docs/QUICKSTART.md)** - New user? Start here for step-by-step setup instructions, pinouts, and troubleshooting!
 

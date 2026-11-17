@@ -1,7 +1,7 @@
 #ifndef STATUS_LED_H
 #define STATUS_LED_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "config/config.h"
 
 // rgbLedWrite() and neopixelWrite() are built-in ESP32 Arduino Core functions
@@ -35,8 +35,8 @@ private:
     status_led_state_e _state = STATUS_LED_IDLE;
     uint8_t _ledPin = 255;           // Pin number (255 = disabled)
     bool _inverted = false;
-    uint8_t _initialState = LOW;     // OFF state
-    uint8_t _currentState = LOW;
+    uint8_t _initialState = 0;
+    uint8_t _currentState = 0;
     
     uint32_t _onTimeMs = 0;
     uint32_t _offTimeMs = 0;

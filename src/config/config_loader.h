@@ -1,7 +1,7 @@
 #ifndef CONFIG_LOADER_H
 #define CONFIG_LOADER_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 
 // Custom pin configuration structure
 // These override the defaults from config.h if enabled

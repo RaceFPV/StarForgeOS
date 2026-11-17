@@ -1,5 +1,5 @@
-# ESP-IDF Configuration for 2MB Flash boards
-# This file configures the ESP-IDF build system for ESP32 boards with 2MB flash
+# Extra defaults for the esp32dev-2mb env, loaded after sdkconfig.defaults.
+# Flash image size is 2MB. Partition offsets stay at firmware 0x10000 and SPIFFS 0x1B0000.
 
 # Disable all logging at bootloader level
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y

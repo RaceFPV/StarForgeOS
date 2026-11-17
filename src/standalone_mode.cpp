@@ -77,7 +77,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         _batteryMonitor->begin();
     #else
         // Battery monitoring enabled but pin not defined - silently fail with warning
-        Serial.println("Warning: ENABLE_BATTERY_MONITOR=1 but BATTERY_ADC_PIN not defined. Battery monitoring disabled.");
+        log_line("Warning: ENABLE_BATTERY_MONITOR=1 but BATTERY_ADC_PIN not defined. Battery monitoring disabled.");
     #endif
 #endif
 
@@ -91,7 +91,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 #endif
         // Rapid blink: 3 times per second = ~150ms on, 183ms off
         _statusLed->blink(150, 183);
-        Serial.printf("Status LED initialized on GPIO%d (standalone mode: rapid blink)\n", STATUS_LED_PIN);
+        log_fmt("Status LED initialized on GPIO%d (standalone mode: rapid blink)\n", STATUS_LED_PIN);
     }
 #endif
 
@@ -104,7 +104,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     _wifiManager->setupAP();
 
     // Give WiFi time to stabilize
-    delay(600);
+    hal_delay_ms(600);
 
     // Allocate RSSI history buffer NOW (after WiFi init, before web server)
     // This gives us the best chance of getting a contiguous block before heap fragmentation
@@ -129,12 +129,12 @@ void StandaloneMode::begin(TimingCore* timingCore) {
 #if ENABLE_LCD_UI
     // IMPORTANT: Give WiFi more time to fully stabilize before initializing LCD
     // LCD initialization uses I2C which can cause issues if WiFi isn't fully ready
-    delay(500);
+    hal_delay_ms(500);
 
     // Initialize LCD UI (optional feature)
-    Serial.println("\n====================================");
-    Serial.println("Initializing LCD UI (optional)");
-    Serial.println("====================================");
+    log_line("\n====================================");
+    log_line("Initializing LCD UI (optional)");
+    log_line("====================================");
 
     _lcdUI = new LcdUI();
     if (_lcdUI && _lcdUI->begin()) {
@@ -159,7 +159,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         // Get and display current thresholds from timing core
         uint8_t enter_rssi = _timingCore->getEnterRssi();
         uint8_t exit_rssi = _timingCore->getExitRssi();
-        Serial.printf("LCD: Displaying thresholds: Enter=%d, Exit=%d\n", enter_rssi, exit_rssi);
+        log_fmt("LCD: Displaying thresholds: Enter=%d, Exit=%d\n", enter_rssi, exit_rssi);
         _lcdUI->updateThreshold(enter_rssi);  // Update with enter threshold for now
 
         // Create LCD UI task
@@ -168,13 +168,13 @@ void StandaloneMode::begin(TimingCore* timingCore) {
         // Stack increased to 8KB for LVGL with full-screen rendering
 #if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C3_DEV) || defined(CONFIG_IDF_TARGET_ESP32C3)
         xTaskCreate(LcdUI::uiTask, "LcdUI", 8192, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle);
-        Serial.println("LCD UI task created");
+        log_line("LCD UI task created");
 #else
         xTaskCreatePinnedToCore(LcdUI::uiTask, "LcdUI", 8192, _lcdUI, LCD_PRIORITY, &_lcdTaskHandle, 0);
-        Serial.println("LCD UI task created on Core 0");
+        log_line("LCD UI task created on Core 0");
 #endif
     } else {
-        Serial.println("Warning: LCD UI initialization failed (optional feature)");
+        log_line("Warning: LCD UI initialization failed (optional feature)");
         if (_lcdUI) {
             delete _lcdUI;
             _lcdUI = nullptr;
@@ -182,7 +182,7 @@ void StandaloneMode::begin(TimingCore* timingCore) {
     }
 #endif
 
-    Serial.println("Setup complete!");
+    log_line("Setup complete!");
 }
 
 void StandaloneMode::process() {
@@ -193,9 +193,9 @@ void StandaloneMode::process() {
         LapData lap = _timingCore->getNextLap();
 
         // Grace period: Don't count laps in first 3 seconds after race start
-        uint32_t time_since_start = millis() - _raceStartTime;
+        uint32_t time_since_start = hal_millis() - _raceStartTime;
         if (time_since_start < 3000) {
-            Serial.printf("Lap ignored (grace period): %dms after start\n", time_since_start);
+            log_fmt("Lap ignored (grace period): %dms after start\n", time_since_start);
             return;  // Skip this lap
         }
 
@@ -207,7 +207,7 @@ void StandaloneMode::process() {
             _laps.erase(_laps.begin());
         }
 
-        Serial.printf("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
+        log_fmt("Lap recorded: %dms, RSSI: %d\n", lap.timestamp_ms, lap.rssi_peak);
 
 #if ENABLE_LCD_UI
         // Update LCD lap count and lap times
@@ -236,7 +236,7 @@ void StandaloneMode::process() {
     // Update battery status every 5 seconds and share with both display systems
     if (_batteryMonitor != nullptr) {
         static unsigned long last_battery_update = 0;
-        if (millis() - last_battery_update > 5000) {
+        if (hal_millis() - last_battery_update > 5000) {
             float voltage = _batteryMonitor->readVoltage();
             uint8_t percentage = _batteryMonitor->calculatePercentage(voltage);
 
@@ -256,7 +256,7 @@ void StandaloneMode::process() {
             }
 #endif
 
-            last_battery_update = millis();
+            last_battery_update = hal_millis();
         }
     }
 #endif
@@ -268,7 +268,7 @@ void StandaloneMode::process() {
 
         // Update settings display periodically (every 100ms is enough)
         static unsigned long last_settings_update = 0;
-        if (millis() - last_settings_update > 100) {
+        if (hal_millis() - last_settings_update > 100) {
             uint8_t band, channel;
             _timingCore->getRX5808Settings(band, channel);
             _lcdUI->updateBandChannel(band, channel);
@@ -278,7 +278,7 @@ void StandaloneMode::process() {
             uint8_t enter_rssi = _timingCore->getEnterRssi();
             _lcdUI->updateThreshold(enter_rssi);  // Update with enter threshold for now
 
-            last_settings_update = millis();
+            last_settings_update = hal_millis();
         }
     }
 #endif
@@ -287,7 +287,7 @@ void StandaloneMode::process() {
 #if defined(STATUS_LED_PIN)
     if (_statusLed) {
         static uint32_t last_led_update = 0;
-        uint32_t current_time = millis();
+        uint32_t current_time = hal_millis();
         // Only update LED every 10ms to prevent blocking and reduce overhead
         if (current_time - last_led_update >= 10) {
             _statusLed->update(current_time);
@@ -306,7 +306,7 @@ void StandaloneMode::saveSettings() {
 void StandaloneMode::lcdStartCallback() {
     if (_lcdInstance) {
         _lcdInstance->_raceActive = true;
-        _lcdInstance->_raceStartTime = millis();
+        _lcdInstance->_raceStartTime = hal_millis();
         _lcdInstance->_laps.clear();
 
         // Drain any pending laps from timing core that may have been detected before race start
@@ -323,7 +323,7 @@ void StandaloneMode::lcdStartCallback() {
             _lcdInstance->_lcdUI->updateLapTimes(_lcdInstance->_laps);  // Clear lap times display
         }
 
-        Serial.println("[LCD] Race started!");
+        log_line("[LCD] Race started!");
     }
 }
 
@@ -335,7 +335,7 @@ void StandaloneMode::lcdStopCallback() {
             _lcdInstance->_lcdUI->updateRaceStatus(false);
         }
 
-        Serial.println("[LCD] Race stopped!");
+        log_line("[LCD] Race stopped!");
     }
 }
 
@@ -348,7 +348,7 @@ void StandaloneMode::lcdClearCallback() {
             _lcdInstance->_lcdUI->updateLapTimes(_lcdInstance->_laps);  // Clear lap times display
         }
 
-        Serial.println("[LCD] Laps cleared!");
+        log_line("[LCD] Laps cleared!");
     }
 }
 #endif

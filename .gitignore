@@ -1,6 +1,12 @@
 # PlatformIO
 .pio
 .platformio/
+managed_components/
+sdkconfig.*
+!sdkconfig.defaults
+!sdkconfig.defaults.*
+!sdkconfig.2mb
+!sdkconfig.s3-touch
 .pioenvs
 .piolibdeps
 .vscode/

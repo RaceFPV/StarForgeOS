@@ -1,6 +1,8 @@
 #include "battery_monitor.h"
 #include "config/config_globals.h"
 
+#include <cmath>
+
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
 
 BatteryMonitor::BatteryMonitor() {
@@ -10,22 +12,12 @@ BatteryMonitor::BatteryMonitor() {
 void BatteryMonitor::begin() {
     // Initialize ADC for battery monitoring
     // Match PhobosLT's simple approach - just set pin as INPUT
-    pinMode(g_battery_adc_pin, INPUT);
-    
-    // Set global attenuation (matches PhobosLT approach)
-    analogSetAttenuation(ADC_11db);  // 0-3.3V range
-
-    // Set ADC resolution
-    #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ARDUINO_ESP32S3_DEV)
-        analogReadResolution(12);  // 12-bit resolution (0-4095) for ESP32-S3
-    #else
-        analogSetWidth(12);  // 12-bit resolution (0-4095) for ESP32
-    #endif
+    hal_gpio_input(g_battery_adc_pin);
 
 #if defined(USB_DETECT_PIN)
     // Initialize USB detection pin (D+ line monitoring)
-    pinMode(g_usb_detect_pin, INPUT);
-    Serial.printf("USB detection enabled on GPIO%d (connect D+ -> 100kΩ -> GPIO%d)\n",
+    hal_gpio_input(g_usb_detect_pin);
+    log_fmt("USB detection enabled on GPIO%d (connect D+ -> 100kΩ -> GPIO%d)\n",
                   g_usb_detect_pin, g_usb_detect_pin);
 #endif
 }
@@ -41,18 +33,18 @@ float BatteryMonitor::readVoltage() {
     if (!initialized) {
         // Initialize with first readings
         for (int i = 0; i < BATTERY_SAMPLES; i++) {
-            int adc_value = analogRead(g_battery_adc_pin);
+            int adc_value = hal_adc_read(g_battery_adc_pin);
             if (adc_value >= 0 && adc_value <= 4095) {
                 measurements[i] = adc_value;
                 average_sum += adc_value;
             }
-            delay(1);
+            hal_delay_ms(1);
         }
         initialized = true;
     }
     
     // Read new value
-    int adc_value = analogRead(g_battery_adc_pin);
+    int adc_value = hal_adc_read(g_battery_adc_pin);
     if (adc_value < 0 || adc_value > 4095) {
         adc_value = 0;  // Invalid reading, use 0
     }
@@ -67,10 +59,10 @@ float BatteryMonitor::readVoltage() {
     uint16_t avg_adc = average_sum / BATTERY_SAMPLES;
 
     // PhobosLT method: map ADC (0-4095) to scaled value (0 to 33*scale) + offset
-    // scale = 2, so: map(0-4095, 0, 66) + offset
+    // scale = 2, so: hal_map(0-4095, 0, 66) + offset
     // This accounts for 3.3V ref, 2:1 divider, and voltage drop compensation
     // Use round() like PhobosLT does for better accuracy
-    uint8_t scaled = map(round(avg_adc), 0, 4095, 0, 33 * (uint8_t)BATTERY_VOLTAGE_DIVIDER);
+    uint8_t scaled = hal_map(round(avg_adc), 0, 4095, 0, 33 * (uint8_t)BATTERY_VOLTAGE_DIVIDER);
     
     #if defined(BATTERY_ADC_OFFSET)
         scaled += BATTERY_ADC_OFFSET;  // Add calibration offset (e.g., +2 for T-Energy)
@@ -101,10 +93,10 @@ bool BatteryMonitor::isUSBConnected() {
 
     // Take multiple samples to filter out data pulses
     for (int i = 0; i < USB_DETECT_SAMPLES; i++) {
-        if (digitalRead(g_usb_detect_pin) == HIGH) {
+        if (hal_gpio_read(g_usb_detect_pin) == 1) {
             highCount++;
         }
-        delayMicroseconds(100);  // Small delay between samples to avoid catching same pulse
+        hal_delay_us(100);  // Small delay between samples to avoid catching same pulse
     }
 
     // Majority vote: If more than half the samples are HIGH, USB is connected

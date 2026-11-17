@@ -1,7 +1,7 @@
 #ifndef BATTERY_MONITOR_H
 #define BATTERY_MONITOR_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "config/config.h"
 
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)

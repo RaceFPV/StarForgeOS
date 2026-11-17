@@ -16,8 +16,8 @@ AudioOutput::AudioOutput() {
 
 void AudioOutput::begin() {
     // Set up GPIO26 as DAC output
-    pinMode(AUDIO_DAC_PIN, OUTPUT);
-    dacWrite(AUDIO_DAC_PIN, 0);  // Start silent
+    hal_gpio_output(AUDIO_DAC_PIN);
+    hal_dac_write(AUDIO_DAC_PIN, 0);  // Start silent
 }
 
 void AudioOutput::playLapBeep() {
@@ -26,15 +26,15 @@ void AudioOutput::playLapBeep() {
     const int samples = (frequency * BEEP_DURATION_MS) / 1000;
     const float period = 1000000.0 / frequency;  // Period in microseconds
 
-    unsigned long start = micros();
+    unsigned long start = hal_micros();
     for (int i = 0; i < samples; i++) {
         // Generate square wave (simple but effective)
-        int phase = (int)((micros() - start) / (period / 2)) % 2;
-        dacWrite(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255, keep volume moderate
-        delayMicroseconds(period / 2);
+        int phase = (int)((hal_micros() - start) / (period / 2)) % 2;
+        hal_dac_write(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255, keep volume moderate
+        hal_delay_us(period / 2);
     }
 
-    dacWrite(AUDIO_DAC_PIN, 0);  // Silence
+    hal_dac_write(AUDIO_DAC_PIN, 0);  // Silence
 }
 
 void AudioOutput::speakLapAnnouncement(uint16_t lapNumber, uint32_t lapTimeMs) {

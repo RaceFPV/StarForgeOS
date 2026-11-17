@@ -1,6 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define SF_FW_VERSION "3.0.0"
+
 // Hardware pin definitions - board-specific
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
     // ESP32-C6 (WiFi 6, single-core RISC-V)
@@ -167,7 +169,7 @@
 #endif
 
 // DMA ADC configuration
-// Note: DMA ADC uses ADC1 continuously, which conflicts with analogRead() on ADC1 pins
+// Note: DMA ADC uses ADC1 continuously, which conflicts with hal_adc_read() on ADC1 pins
 #define DMA_SAMPLE_RATE     1000  // DMA ADC sample rate in Hz (1000 = 1kHz, matches timing loop)
                                   // ESP32 valid range: 20kHz - 2MHz (ESP32), 1kHz+ (ESP32-C3/S2/S3/C6)
                                   // Lower rate = less CPU overhead, 1kHz is sufficient for RSSI sampling
@@ -319,16 +321,16 @@
 #define DEBUG_TIMING        0     // Enable timing debug output
 
 #if DEBUG_SERIAL
-  #define DEBUG_PRINT(x)    Serial.print(x)
-  #define DEBUG_PRINTLN(x)  Serial.println(x)
+  #define DEBUG_PRINT(x)    log_raw(x)
+  #define DEBUG_PRINTLN(x)  log_line(x)
 #else
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
 #endif
 
 #if DEBUG_TIMING
-  #define TIMING_PRINT(x)   Serial.print(x)
-  #define TIMING_PRINTLN(x) Serial.println(x)
+  #define TIMING_PRINT(x)   log_raw(x)
+  #define TIMING_PRINTLN(x) log_line(x)
 #else
   #define TIMING_PRINT(x)
   #define TIMING_PRINTLN(x)  

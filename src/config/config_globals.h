@@ -1,7 +1,7 @@
 #ifndef CONFIG_GLOBALS_H
 #define CONFIG_GLOBALS_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "config.h"
 
 // Global pin configuration variables

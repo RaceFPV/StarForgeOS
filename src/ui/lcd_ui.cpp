@@ -1,14 +1,15 @@
 #include "lcd_ui.h"
+#include <cstdio>
 
 #if ENABLE_LCD_UI
 
 #include "../config/config_globals.h"
 #include "../hardware/CST820.h"
+#include "../hardware/lcd_panel.h"
+#include "platform/spiffs_vfs.h"
 #if ENABLE_AUDIO
 #include "../hardware/audio_output.h"
 #endif
-#include <FS.h>
-#include <SPIFFS.h>
 
 // Static member initialization
 LcdUI* LcdUI::_instance = nullptr;
@@ -24,13 +25,7 @@ lv_indev_drv_t LcdUI::indev_drv;
     lv_color_t LcdUI::buf[240 * 60];
 #endif
 
-LcdUI::LcdUI() : 
-#if defined(BOARD_ESP32_S3_TOUCH)
-                 bus(nullptr), gfx(nullptr),
-#else
-                 tft(nullptr),
-#endif
-                 touch(nullptr), _timingCore(nullptr),
+LcdUI::LcdUI() : touch(nullptr), _timingCore(nullptr),
                  rssi_label(nullptr), rssi_chart(nullptr), rssi_series(nullptr),
                  lap_count_label(nullptr), status_label(nullptr),
                  battery_label(nullptr), battery_icon(nullptr),
@@ -49,77 +44,51 @@ LcdUI::LcdUI() :
 }
 
 LcdUI::~LcdUI() {
-#if defined(BOARD_ESP32_S3_TOUCH)
-    if (gfx) delete gfx;
-    if (bus) delete bus;
-#else
-    if (tft) delete tft;
-#endif
     if (touch) delete touch;
     _instance = nullptr;
 }
 
 bool LcdUI::begin() {
-    Serial.println("\n====================================");
-    Serial.println("LCD UI: Initializing");
-    Serial.println("====================================\n");
+    log_line("\n====================================");
+    log_line("LCD UI: Initializing");
+    log_line("====================================\n");
     
     // Initialize backlight
-    pinMode(g_lcd_backlight, OUTPUT);
-    digitalWrite(g_lcd_backlight, LOW);  // Turn off first
-    Serial.println("LCD: Backlight OFF (initializing)");
+    hal_gpio_output(g_lcd_backlight);
+    hal_gpio_write(g_lcd_backlight, 0);  // Turn off first
+    log_line("LCD: Backlight OFF (initializing)");
     
     // Initialize display (board-specific)
-    Serial.println("LCD: Initializing display...");
+    log_line("LCD: Initializing display...");
     
+    LcdPanelPins pins = {};
 #if defined(BOARD_ESP32_S3_TOUCH)
-    // Waveshare ESP32-S3-Touch-LCD-2: Use Arduino_GFX with SPI2
-    // Configuration matches official Waveshare demo
-    Serial.println("LCD: Using Arduino_GFX for ESP32-S3");
-    
-    // Create SPI data bus (DC, CS, SCK, MOSI, MISO, SPI_NUM, isSPI_Mode)
-    bus = new Arduino_ESP32SPI(42 /* DC */, 45 /* CS */, 39 /* SCK */, 38 /* MOSI */, 40 /* MISO */, FSPI /* spi_num */, true);
-    
-    // Create ST7789 display driver (bus, RST, rotation, IPS, width, height)
-    // rotation=0 for portrait (matching UI layout), IPS=true for correct colors
-    gfx = new Arduino_ST7789(bus, -1 /* RST */, 0 /* rotation */, true /* IPS */, 240 /* width */, 320 /* height */);
-    
-    // Initialize display (no invertDisplay, no special config - just like demo)
-    if (!gfx->begin()) {
-        Serial.println("ERROR: gfx->begin() failed!");
+    pins = {38, 40, 39, 45, 42, -1, 80000000, true};
+    log_line("LCD: ST7789 on ESP32-S3");
+#else
+    pins = {13, 12, 14, 15, 2, -1, 40000000, false};
+    log_line("LCD: ST7789");
+#endif
+    if (!lcd_panel_begin(&pins)) {
+        log_line("ERROR: display init failed");
         return false;
     }
     
-    gfx->fillScreen(0x0000);  // Black in RGB565 format
-    Serial.println("LCD: Arduino_GFX initialized");
-    
-#else
-    // JC2432W328C and other boards: Use TFT_eSPI
-    Serial.println("LCD: Using TFT_eSPI");
-    
-    tft = new TFT_eSPI();
-    tft->begin();
-    tft->setRotation(0);  // Portrait
-    tft->fillScreen(TFT_BLACK);
-    Serial.println("LCD: TFT_eSPI initialized");
-    
-#endif
-    
     // Turn on backlight AFTER display init (use PWM for brightness control)
-    pinMode(g_lcd_backlight, OUTPUT);
+    hal_gpio_output(g_lcd_backlight);
     
     // Load user brightness preference from SPIFFS
     loadBrightnessFromSPIFFS();
     
     // Convert percentage (10-100%) to PWM value (25-255)
-    uint8_t pwm_value = map(_userBrightness, 10, 100, 25, 255);
-    analogWrite(g_lcd_backlight, pwm_value);
-    Serial.printf("LCD: Backlight ON (%d%% brightness)\n", _userBrightness);
-    _lastTouchTime = millis();  // Initialize touch timer
+    uint8_t pwm_value = hal_map(_userBrightness, 10, 100, 25, 255);
+    hal_pwm_write(g_lcd_backlight, pwm_value);
+    log_fmt("LCD: Backlight ON (%d%% brightness)\n", _userBrightness);
+    _lastTouchTime = hal_millis();  // Initialize touch timer
     _screenDimmed = false;
     
     // Initialize LVGL
-    Serial.println("LCD: Initializing LVGL...");
+    log_line("LCD: Initializing LVGL...");
     lv_init();
     
 #if defined(BOARD_ESP32_S3_TOUCH)
@@ -140,7 +109,7 @@ bool LcdUI::begin() {
     }
     
     if (!buf) {
-        Serial.printf("ERROR: Failed to allocate LVGL display buffer (%d KB)!\n", bufBytes / 1024);
+        log_fmt("ERROR: Failed to allocate LVGL display buffer (%d KB)!\n", bufBytes / 1024);
         return false;
     }
     
@@ -163,10 +132,10 @@ bool LcdUI::begin() {
 #endif
     lv_disp_drv_register(&disp_drv);
     
-    Serial.println("LCD: LVGL display registered");
+    log_line("LCD: LVGL display registered");
     
     // Initialize touch
-    Serial.println("LCD: Initializing CST820 touch...");
+    log_line("LCD: Initializing CST820 touch...");
     touch = new CST820(g_lcd_i2c_sda, g_lcd_i2c_scl, LCD_TOUCH_RST, LCD_TOUCH_INT);
     touch->begin();
     
@@ -175,10 +144,10 @@ bool LcdUI::begin() {
     indev_drv.read_cb = my_touchpad_read;
     lv_indev_drv_register(&indev_drv);
     
-    Serial.println("LCD: Touch initialized");
+    log_line("LCD: Touch initialized");
     
     // Create UI
-    Serial.println("LCD: Creating UI...");
+    log_line("LCD: Creating UI...");
     createUI();
     
 #if defined(BOARD_ESP32_S3_TOUCH)
@@ -187,14 +156,9 @@ bool LcdUI::begin() {
     lv_obj_invalidate(lv_scr_act());
 #endif
     
-    Serial.println("\n====================================");
-    Serial.println("LCD UI: Setup complete!");
-    Serial.println("====================================\n");
-    
-#if !defined(BOARD_ESP32_S3_TOUCH)
-    // Keep SPI transaction open for LVGL (TFT_eSPI optimization - not needed for Arduino_GFX)
-    tft->startWrite();
-#endif
+    log_line("\n====================================");
+    log_line("LCD UI: Setup complete!");
+    log_line("====================================\n");
     
     return true;
 }
@@ -580,14 +544,14 @@ void LcdUI::createUI() {
         lv_obj_set_pos(lap_times_labels[i], 5, 18 + (i * 14));  // Start at 18px, 14px spacing
     }
     
-    Serial.println("LCD: UI created successfully");
+    log_line("LCD: UI created successfully");
 }
 
 // Update functions (called from standalone mode)
 void LcdUI::updateRSSI(uint8_t rssi) {
     // Throttle RSSI updates to prevent overwhelming LVGL during scrolling
     // Update at same rate as graph (every 150ms) to prevent race conditions
-    unsigned long now = millis();
+    unsigned long now = hal_millis();
     if (now - _lastGraphUpdate < GRAPH_UPDATE_INTERVAL) {
         return;  // Too soon, skip update
     }
@@ -770,7 +734,7 @@ void LcdUI::updateBattery(float voltage, uint8_t percentage, bool isCharging) {
 void LcdUI::start_btn_event(lv_event_t* e) {
     LcdUI* ui = (LcdUI*)e->user_data;
     if (ui && ui->_startCallback && !ui->_countdownActive) {
-        Serial.println("LCD: START button pressed - beginning countdown");
+        log_line("LCD: START button pressed - beginning countdown");
         // Disable start button during countdown
         if (ui->start_btn) {
             lv_obj_add_state(ui->start_btn, LV_STATE_DISABLED);
@@ -783,7 +747,7 @@ void LcdUI::stop_btn_event(lv_event_t* e) {
     LcdUI* ui = (LcdUI*)e->user_data;
     // Cancel countdown if active
     if (ui && ui->_countdownActive) {
-        Serial.println("LCD: STOP button pressed - cancelling countdown");
+        log_line("LCD: STOP button pressed - cancelling countdown");
         ui->stopCountdown();
         if (ui->start_btn) {
             lv_obj_clear_state(ui->start_btn, LV_STATE_DISABLED);
@@ -792,7 +756,7 @@ void LcdUI::stop_btn_event(lv_event_t* e) {
     }
     // Otherwise, stop the race and show finish flash
     if (ui && ui->_stopCallback) {
-        Serial.println("LCD: STOP button pressed");
+        log_line("LCD: STOP button pressed");
         ui->showFinish();  // Show "Finish" flash
         ui->_stopCallback();
     }
@@ -801,7 +765,7 @@ void LcdUI::stop_btn_event(lv_event_t* e) {
 void LcdUI::clear_btn_event(lv_event_t* e) {
     LcdUI* ui = (LcdUI*)e->user_data;
     if (ui && ui->_clearCallback) {
-        Serial.println("LCD: CLEAR button pressed");
+        log_line("LCD: CLEAR button pressed");
         ui->_clearCallback();
     }
 }
@@ -815,7 +779,7 @@ void LcdUI::band_prev_event(lv_event_t* e) {
         if (band > 0) band--;
         else band = 5;  // Wrap to L
         ui->_timingCore->setRX5808Settings(band, channel);
-        Serial.printf("LCD: Band changed to %d\n", band);
+        log_fmt("LCD: Band changed to %d\n", band);
         
         // Update UI labels
         ui->updateBandChannel(band, channel);
@@ -836,7 +800,7 @@ void LcdUI::band_next_event(lv_event_t* e) {
         if (band < 5) band++;
         else band = 0;  // Wrap to A
         ui->_timingCore->setRX5808Settings(band, channel);
-        Serial.printf("LCD: Band changed to %d\n", band);
+        log_fmt("LCD: Band changed to %d\n", band);
         
         // Update UI labels
         ui->updateBandChannel(band, channel);
@@ -857,7 +821,7 @@ void LcdUI::channel_prev_event(lv_event_t* e) {
         if (channel > 0) channel--;
         else channel = 7;  // Wrap to 8
         ui->_timingCore->setRX5808Settings(band, channel);
-        Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+        log_fmt("LCD: Channel changed to %d\n", channel + 1);
         
         // Update UI labels
         ui->updateBandChannel(band, channel);
@@ -878,7 +842,7 @@ void LcdUI::channel_next_event(lv_event_t* e) {
         if (channel < 7) channel++;
         else channel = 0;  // Wrap to 1
         ui->_timingCore->setRX5808Settings(band, channel);
-        Serial.printf("LCD: Channel changed to %d\n", channel + 1);
+        log_fmt("LCD: Channel changed to %d\n", channel + 1);
         
         // Update UI labels
         ui->updateBandChannel(band, channel);
@@ -897,7 +861,7 @@ void LcdUI::threshold_dec_event(lv_event_t* e) {
         uint8_t threshold = ui->_timingCore->getThreshold();
         if (threshold > 10) threshold -= 5;  // Decrement by 5
         ui->_timingCore->setThreshold(threshold);
-        Serial.printf("LCD: Threshold decreased to %d\n", threshold);
+        log_fmt("LCD: Threshold decreased to %d\n", threshold);
         
         // Update UI label
         ui->updateThreshold(threshold);
@@ -915,7 +879,7 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
         uint8_t threshold = ui->_timingCore->getThreshold();
         if (threshold < 245) threshold += 5;  // Increment by 5
         ui->_timingCore->setThreshold(threshold);
-        Serial.printf("LCD: Threshold increased to %d\n", threshold);
+        log_fmt("LCD: Threshold increased to %d\n", threshold);
         
         // Update UI label
         ui->updateThreshold(threshold);
@@ -930,31 +894,15 @@ void LcdUI::threshold_inc_event(lv_event_t* e) {
 
 // LVGL display flush callback (works with both TFT_eSPI and Arduino_GFX)
 void LcdUI::my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
-#if defined(BOARD_ESP32_S3_TOUCH)
-    // For ESP32-S3-Touch with direct_mode, we don't draw here - we draw the entire buffer in uiTask
-    // Just mark the flush as complete
-    lv_disp_flush_ready(disp);
-#else
-    // For non-direct mode (other boards like JC2432W328C), draw partial updates immediately
-    if (!_instance) {
-        lv_disp_flush_ready(disp);
-        return;
-    }
-    
+#if !defined(BOARD_ESP32_S3_TOUCH)
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
-
-    // TFT_eSPI version (used by JC2432W328C and other boards)
-    if (!_instance->tft) {
-        lv_disp_flush_ready(disp);
-        return;
-    }
-    
-    _instance->tft->pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
-    
-    // Mark flush as complete AFTER drawing is done (required by LVGL)
-    lv_disp_flush_ready(disp);
+    lcd_panel_draw(area->x1, area->y1, w, h, color_p);
+#else
+    (void)area;
+    (void)color_p;
 #endif
+    lv_disp_flush_ready(disp);
 }
 
 // LVGL touchpad read callback
@@ -968,7 +916,7 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
     // This prevents use-after-free crashes when scrolling rapidly
     static unsigned long last_touch_read = 0;
     static lv_indev_data_t last_data = {0};  // Cache last state
-    unsigned long now = millis();
+    unsigned long now = hal_millis();
     
     if (now - last_touch_read < 10) {  // Minimum 10ms between reads (~100Hz, more responsive)
         // Too soon, return cached state to avoid flooding LVGL
@@ -1004,11 +952,11 @@ void LcdUI::my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data
 void LcdUI::startCountdown() {
     if (_countdownActive) return;  // Already counting down
     
-    Serial.println("LCD: Starting 5-second countdown");
+    log_line("LCD: Starting 5-second countdown");
     _countdownActive = true;
     _countdownValue = 5;
     _lastBeepValue = -1;
-    _countdownStartTime = millis();
+    _countdownStartTime = hal_millis();
     
     // Create countdown overlay (full screen semi-transparent black)
     lv_obj_t* scr = lv_scr_act();
@@ -1043,7 +991,7 @@ void LcdUI::startCountdown() {
 void LcdUI::updateCountdown() {
     if (!_countdownActive) return;
     
-    unsigned long now = millis();
+    unsigned long now = hal_millis();
     unsigned long elapsed = now - _countdownStartTime;
     
     // Calculate current countdown value (5, 4, 3, 2, 1, GO!)
@@ -1065,7 +1013,7 @@ void LcdUI::updateCountdown() {
         // Countdown complete, start race
         stopCountdown();
         if (_startCallback) {
-            Serial.println("LCD: Countdown complete - starting race");
+            log_line("LCD: Countdown complete - starting race");
             _startCallback();
         }
         // Re-enable start button (will be disabled again when race starts)
@@ -1133,15 +1081,15 @@ void LcdUI::playCountdownBeep(int frequency, int durationMs) {
     
     if (samples <= 0 || durationMs <= 0) return;
     
-    pinMode(AUDIO_DAC_PIN, OUTPUT);
-    unsigned long start = micros();
+    hal_gpio_output(AUDIO_DAC_PIN);
+    unsigned long start = hal_micros();
     for (int i = 0; i < samples; i++) {
         // Generate square wave
-        int phase = (int)((micros() - start) / (period / 2)) % 2;
-        dacWrite(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255
-        delayMicroseconds(period / 2);
+        int phase = (int)((hal_micros() - start) / (period / 2)) % 2;
+        hal_dac_write(AUDIO_DAC_PIN, phase ? 200 : 55);  // DAC range 0-255
+        hal_delay_us(period / 2);
     }
-    dacWrite(AUDIO_DAC_PIN, 0);  // Silence
+    hal_dac_write(AUDIO_DAC_PIN, 0);  // Silence
 }
 #endif
 
@@ -1149,9 +1097,9 @@ void LcdUI::playCountdownBeep(int frequency, int durationMs) {
 void LcdUI::showFinish() {
     if (_finishActive) return;  // Already showing
     
-    Serial.println("LCD: Showing Finish flash");
+    log_line("LCD: Showing Finish flash");
     _finishActive = true;
-    _finishStartTime = millis();
+    _finishStartTime = hal_millis();
     
     // Create finish overlay (full screen semi-transparent black)
     lv_obj_t* scr = lv_scr_act();
@@ -1180,7 +1128,7 @@ void LcdUI::showFinish() {
 void LcdUI::updateFinish() {
     if (!_finishActive) return;
     
-    unsigned long now = millis();
+    unsigned long now = hal_millis();
     unsigned long elapsed = now - _finishStartTime;
     
     // Hide finish after duration
@@ -1226,9 +1174,8 @@ void LcdUI::uiTask(void* parameter) {
         // For ESP32-S3-Touch with direct_mode: draw entire buffer to display
         // This matches the Waveshare demo approach - use the buffer directly
         // In direct_mode, LVGL renders directly to our allocated buffer
-        if (ui && ui->gfx && LcdUI::buf) {
-            // Use BeRGB for swapped color format (LV_COLOR_16_SWAP = 1)
-            ui->gfx->draw16bitBeRGBBitmap(0, 0, (uint16_t *)LcdUI::buf, 240, 320);
+        if (ui && LcdUI::buf) {
+            lcd_panel_draw(0, 0, 240, 320, LcdUI::buf);
         }
 #endif
         
@@ -1245,27 +1192,27 @@ void LcdUI::uiTask(void* parameter) {
 
 // Update screen brightness based on activity timeout
 void LcdUI::updateScreenBrightness() {
-    unsigned long now = millis();
+    unsigned long now = hal_millis();
     unsigned long timeSinceTouch = now - _lastTouchTime;
     
     // Check if we should dim the screen
     if (!_screenDimmed && timeSinceTouch >= SCREEN_DIM_TIMEOUT) {
         // Time to dim
-        analogWrite(g_lcd_backlight, SCREEN_DIM_BRIGHTNESS);
+        hal_pwm_write(g_lcd_backlight, SCREEN_DIM_BRIGHTNESS);
         _screenDimmed = true;
-        Serial.println("LCD: Screen dimmed (power save)");
+        log_line("LCD: Screen dimmed (power save)");
     }
 }
 
 // Wake screen to full brightness
 void LcdUI::wakeScreen() {
-    _lastTouchTime = millis();
+    _lastTouchTime = hal_millis();
     
     // Only update if screen was dimmed (avoid unnecessary PWM writes)
     if (_screenDimmed) {
         setBrightness(_userBrightness);  // Restore user's brightness
         _screenDimmed = false;
-        Serial.println("LCD: Screen woke up (touch detected)");
+        log_line("LCD: Screen woke up (touch detected)");
     }
 }
 
@@ -1278,39 +1225,41 @@ void LcdUI::setBrightness(uint8_t percent) {
     _userBrightness = percent;
     
     // Convert percentage (10-100%) to PWM value (25-255)
-    uint8_t pwm_value = map(percent, 10, 100, 25, 255);
-    analogWrite(g_lcd_backlight, pwm_value);
+    uint8_t pwm_value = hal_map(percent, 10, 100, 25, 255);
+    hal_pwm_write(g_lcd_backlight, pwm_value);
 }
 
 // Load brightness from SPIFFS
 void LcdUI::loadBrightnessFromSPIFFS() {
-    fs::File file = SPIFFS.open("/brightness.txt", "r");
+    char path[64];
+    spiffs_vfs_path("/brightness.txt", path, sizeof(path));
+    FILE* file = fopen(path, "r");
     if (file) {
-        String content = file.readStringUntil('\n');
-        _userBrightness = content.toInt();
-        
-        // Validate range
-        if (_userBrightness < 10 || _userBrightness > 100) {
-            _userBrightness = 100;  // Default to 100%
+        int value = 100;
+        if (fscanf(file, "%d", &value) == 1) {
+            _userBrightness = (uint8_t)value;
         }
-        
-        file.close();
-        Serial.printf("LCD: Loaded brightness from SPIFFS: %d%%\n", _userBrightness);
+        if (_userBrightness < 10 || _userBrightness > 100) {
+            _userBrightness = 100;
+        }
+        fclose(file);
+        log_fmt("LCD: Loaded brightness from SPIFFS: %d%%\n", _userBrightness);
     } else {
-        _userBrightness = 100;  // Default to 100%
-        Serial.println("LCD: No saved brightness, using default 100%");
+        _userBrightness = 100;
+        log_line("LCD: No saved brightness, using default 100%");
     }
 }
 
-// Save brightness to SPIFFS
 void LcdUI::saveBrightnessToSPIFFS() {
-    fs::File file = SPIFFS.open("/brightness.txt", "w");
+    char path[64];
+    spiffs_vfs_path("/brightness.txt", path, sizeof(path));
+    FILE* file = fopen(path, "w");
     if (file) {
-        file.println(_userBrightness);
-        file.close();
-        Serial.printf("LCD: Saved brightness to SPIFFS: %d%%\n", _userBrightness);
+        fprintf(file, "%u\n", _userBrightness);
+        fclose(file);
+        log_fmt("LCD: Saved brightness to SPIFFS: %d%%\n", _userBrightness);
     } else {
-        Serial.println("LCD: Failed to save brightness to SPIFFS");
+        log_line("LCD: Failed to save brightness to SPIFFS");
     }
 }
 
@@ -1335,7 +1284,7 @@ void LcdUI::brightness_slider_event(lv_event_t* e) {
     _instance->saveBrightnessToSPIFFS();
     
     // Reset dim timer (keep screen on while adjusting)
-    _instance->_lastTouchTime = millis();
+    _instance->_lastTouchTime = hal_millis();
     _instance->_screenDimmed = false;
 }
 

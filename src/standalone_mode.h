@@ -1,7 +1,7 @@
 #ifndef STANDALONE_MODE_H
 #define STANDALONE_MODE_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include <vector>
 #include "timing_core.h"
 #include "config/config.h"

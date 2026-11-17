@@ -1,9 +1,9 @@
 #ifndef WEB_SERVER_H
 #define WEB_SERVER_H
 
-#include <Arduino.h>
-#include <SPIFFS.h>
-#include <ESPAsyncWebServer.h>
+#include "platform/hal.h"
+#include "platform/http_request.h"
+#include "esp_http_server.h"
 #include <vector>
 #include "timing_core.h"
 
@@ -21,6 +21,22 @@ public:
     void begin(TimingCore* timingCore, SettingsManager* settingsManager,
                bool* raceActive, uint32_t* raceStartTime, std::vector<LapData>* laps);
 
+    void handleRoot(HttpRequest* request);
+    void handleGetStatus(HttpRequest* request);
+    void handleGetLaps(HttpRequest* request);
+    void handleGetRSSIHistory(HttpRequest* request);
+    void handleStartRace(HttpRequest* request);
+    void handleStopRace(HttpRequest* request);
+    void handleClearLaps(HttpRequest* request);
+    void handleSetFrequency(HttpRequest* request);
+    void handleSetThreshold(HttpRequest* request);
+    void handleGetChannels(HttpRequest* request);
+    void handleGetSPIFFSInfo(HttpRequest* request);
+    void handleGetConfig(HttpRequest* request);
+    void handleStyleCSS(HttpRequest* request);
+    void handleAppJS(HttpRequest* request);
+    void handleNotFound(HttpRequest* request);
+
 #if ENABLE_BATTERY_MONITOR && defined(BATTERY_ADC_PIN)
     // Update battery status (called from StandaloneMode polling loop)
     // This caches battery data so it can be served without reading on-demand
@@ -28,7 +44,7 @@ public:
 #endif
 
 private:
-    AsyncWebServer _server;
+    httpd_handle_t _server;
     TimingCore* _timingCore;
     SettingsManager* _settingsManager;
 
@@ -45,22 +61,8 @@ private:
     bool _batteryDataValid;  // True when battery data has been read at least once
 #endif
 
-    // HTTP handlers (AsyncWebServer uses callbacks with AsyncWebServerRequest*)
-    void handleRoot(AsyncWebServerRequest* request);
-    void handleGetStatus(AsyncWebServerRequest* request);
-    void handleGetLaps(AsyncWebServerRequest* request);
-    void handleGetRSSIHistory(AsyncWebServerRequest* request);
-    void handleStartRace(AsyncWebServerRequest* request);
-    void handleStopRace(AsyncWebServerRequest* request);
-    void handleClearLaps(AsyncWebServerRequest* request);
-    void handleSetFrequency(AsyncWebServerRequest* request);
-    void handleSetThreshold(AsyncWebServerRequest* request);
-    void handleGetChannels(AsyncWebServerRequest* request);
-    void handleGetSPIFFSInfo(AsyncWebServerRequest* request);
-    void handleGetConfig(AsyncWebServerRequest* request);
-    void handleStyleCSS(AsyncWebServerRequest* request);
-    void handleAppJS(AsyncWebServerRequest* request);
-    void handleNotFound(AsyncWebServerRequest* request);
+    void sendStoredFile(HttpRequest* request, const char* web_path, const char* content_type,
+                        const char* cache_control, uint32_t pause_ms);
 };
 
 #endif // WEB_SERVER_H

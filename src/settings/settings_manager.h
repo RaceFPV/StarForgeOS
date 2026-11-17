@@ -1,10 +1,10 @@
 #ifndef SETTINGS_MANAGER_H
 #define SETTINGS_MANAGER_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "timing_core.h"
 
-// Settings persistence manager using ESP32 Preferences (NVS)
+// Settings persistence manager using ESP32 NvsStore (NVS)
 // Handles loading and saving user settings to non-volatile storage
 class SettingsManager {
 public:

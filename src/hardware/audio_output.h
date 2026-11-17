@@ -1,7 +1,7 @@
 #ifndef AUDIO_OUTPUT_H
 #define AUDIO_OUTPUT_H
 
-#include <Arduino.h>
+#include "platform/hal.h"
 #include "config/config.h"
 
 #if ENABLE_AUDIO

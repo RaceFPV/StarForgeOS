@@ -1,6 +1,6 @@
 #include "config_loader.h"
 #include "config_globals.h"
-#include <Preferences.h>
+#include "platform/nvs_store.h"
 
 const char* ConfigLoader::NVS_NAMESPACE = "sfos_pins";
 
@@ -9,14 +9,14 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
         return false;
     }
     
-    Preferences prefs;
+    NvsStore prefs;
     
     // Try opening in read-write mode first (won't error if namespace doesn't exist)
-    // This avoids the Preferences library error message on first boot
-    if (!prefs.begin(NVS_NAMESPACE, false)) {
+    // This avoids the NvsStore library error message on first boot
+    if (!prefs.open(NVS_NAMESPACE, false)) {
         // This should rarely happen - only if NVS is corrupted
         if (allowSerialOutput) {
-            Serial.println("ConfigLoader: Failed to open NVS - using config.h defaults");
+            log_line("ConfigLoader: Failed to open NVS - using config.h defaults");
         }
         return false;
     }
@@ -25,9 +25,9 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
     uint8_t enabled = prefs.getUChar("pin_enabled", 0);
     if (enabled == 0) {
         if (allowSerialOutput) {
-            Serial.println("ConfigLoader: Custom pins disabled or not found - using config.h defaults");
+            log_line("ConfigLoader: Custom pins disabled or not found - using config.h defaults");
         }
-        prefs.end();
+        prefs.close();
         return false;
     }
     
@@ -47,7 +47,7 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
     config->usb_detect_pin = prefs.getUChar("pin_usb_detect", 0);
     
     // LCD/Touch pins (use -1 as default, check if key exists)
-    // Since Preferences doesn't have a direct "key exists" check for int8_t,
+    // Since NvsStore doesn't have a direct "key exists" check for int8_t,
     // we'll use a magic value approach or check size
     int8_t lcd_sda = prefs.getChar("pin_lcd_i2c_sda", -1);
     int8_t lcd_scl = prefs.getChar("pin_lcd_i2c_scl", -1);
@@ -74,14 +74,14 @@ bool ConfigLoader::loadCustomConfig(CustomPinConfig* config, bool allowSerialOut
         config->lcd_backlight = -1;
     }
     
-    prefs.end();
+    prefs.close();
     
     if (allowSerialOutput) {
-        Serial.println("ConfigLoader: Custom pin configuration loaded from NVS!");
-        Serial.printf("  RSSI Input: GPIO%d\n", config->rssi_input_pin);
-        Serial.printf("  RX5808 Data: GPIO%d\n", config->rx5808_data_pin);
-        Serial.printf("  RX5808 CLK: GPIO%d\n", config->rx5808_clk_pin);
-        Serial.printf("  RX5808 SEL: GPIO%d\n", config->rx5808_sel_pin);
+        log_line("ConfigLoader: Custom pin configuration loaded from NVS!");
+        log_fmt("  RSSI Input: GPIO%d\n", config->rssi_input_pin);
+        log_fmt("  RX5808 Data: GPIO%d\n", config->rx5808_data_pin);
+        log_fmt("  RX5808 CLK: GPIO%d\n", config->rx5808_clk_pin);
+        log_fmt("  RX5808 SEL: GPIO%d\n", config->rx5808_sel_pin);
     }
     
     return true;
@@ -92,11 +92,11 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
         return false;
     }
     
-    Preferences prefs;
+    NvsStore prefs;
     
     // Open preferences in read-write mode
-    if (!prefs.begin(NVS_NAMESPACE, false)) {
-        Serial.println("ConfigLoader: Failed to open NVS for writing - cannot save config");
+    if (!prefs.open(NVS_NAMESPACE, false)) {
+        log_line("ConfigLoader: Failed to open NVS for writing - cannot save config");
         return false;
     }
     
@@ -150,22 +150,22 @@ bool ConfigLoader::saveCustomConfig(const CustomPinConfig* config) {
         }
     }
     
-    prefs.end();
-    Serial.println("ConfigLoader: Configuration saved to NVS successfully");
+    prefs.close();
+    log_line("ConfigLoader: Configuration saved to NVS successfully");
     return true;
 }
 
 bool ConfigLoader::hasCustomConfig() {
-    Preferences prefs;
+    NvsStore prefs;
     
     // Open in read-write mode to avoid error if namespace doesn't exist
     // (read-only mode errors when namespace doesn't exist)
-    if (!prefs.begin(NVS_NAMESPACE, false)) {
+    if (!prefs.open(NVS_NAMESPACE, false)) {
         return false;
     }
     
     uint8_t enabled = prefs.getUChar("pin_enabled", 0);
-    prefs.end();
+    prefs.close();
     
     return (enabled != 0);
 }

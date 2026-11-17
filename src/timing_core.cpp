@@ -1,6 +1,6 @@
 #include "timing_core.h"
+#include <cstring>
 #include "config/config_globals.h"
-#include <SPI.h>
 #include "esp_adc/adc_continuous.h"
 #include "soc/soc_caps.h"
 
@@ -127,26 +127,23 @@ TimingCore::TimingCore() {
 
 void TimingCore::begin() {
   if (debug_enabled) {
-    Serial.println("TimingCore: Initializing...");
+    log_line("TimingCore: Initializing...");
   }
   
   // Setup pins
-  pinMode(g_rssi_input_pin, INPUT);
+  hal_gpio_input(g_rssi_input_pin);
   
   // Setup DMA ADC or fall back to polled ADC
   if (use_dma) {
     setupADC_DMA();
     if (debug_enabled) {
-      Serial.printf("DMA ADC initialized - continuous background sampling at %d Hz\n", DMA_SAMPLE_RATE);
+      log_fmt("DMA ADC initialized - continuous background sampling at %d Hz\n", DMA_SAMPLE_RATE);
     }
   } else {
     // CRITICAL: Configure ADC attenuation for full 0-3.3V range
     // RX5808 RSSI output is 0-3.3V, so we need 11dB attenuation
-    // Without this, ESP32-C3 ADC defaults to lower voltage range and saturates
-    analogSetAttenuation(ADC_11db);  // Set global attenuation to 11dB (0-3.3V)
-    
     if (debug_enabled) {
-      Serial.println("Polled ADC configured for 0-3.3V range (11dB attenuation)");
+      log_line("Polled ADC configured for 0-3.3V range (11dB attenuation)");
     }
   }
   
@@ -181,7 +178,7 @@ void TimingCore::begin() {
   // state.activated = true;  // REMOVED - see main.cpp setup() for activation timing
   
   if (debug_enabled) {
-    Serial.println("TimingCore: Ready (inactive until mode init)");
+    log_line("TimingCore: Ready (inactive until mode init)");
   }
 }
 
@@ -213,9 +210,9 @@ void TimingCore::timingTask(void* parameter) {
       continue;
     }
     
-    uint32_t loop_start = micros();
+    uint32_t loop_start = hal_micros();
     static uint32_t last_process_time = 0;
-    uint32_t current_time = millis();
+    uint32_t current_time = hal_millis();
     
     // Limit processing to configured interval
     if (current_time - last_process_time < TIMING_INTERVAL_MS) {
@@ -263,14 +260,14 @@ void TimingCore::timingTask(void* parameter) {
             void* test_alloc = malloc(1024);
             if (test_alloc) {
               free(test_alloc);
-              Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - heap fragmented (small allocs work)\n", required_bytes / 1024);
+              log_fmt("WARNING: Failed to allocate RSSI history buffer (%d KB) - heap fragmented (small allocs work)\n", required_bytes / 1024);
             } else {
-              Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - out of memory\n", required_bytes / 1024);
+              log_fmt("WARNING: Failed to allocate RSSI history buffer (%d KB) - out of memory\n", required_bytes / 1024);
             }
           } else {
             memset(core->rssi_history_buffer, 0, required_bytes);
             if (core->debug_enabled) {
-              Serial.printf("RSSI history buffer allocated: %d KB\n", required_bytes / 1024);
+              log_fmt("RSSI history buffer allocated: %d KB\n", required_bytes / 1024);
             }
           }
         }
@@ -331,12 +328,12 @@ void TimingCore::timingTask(void* parameter) {
           // Starting a crossing
           core->state.crossing_start = current_time;
           if (core->debug_enabled) {
-            Serial.printf("Crossing started - RSSI: %d\n", filtered_rssi);
+            log_fmt("Crossing started - RSSI: %d\n", filtered_rssi);
           }
         } else {
           // Ending a crossing
           if (core->debug_enabled) {
-            Serial.printf("Crossing ended - RSSI: %d\n", filtered_rssi);
+            log_fmt("Crossing ended - RSSI: %d\n", filtered_rssi);
           }
         }
         
@@ -360,7 +357,7 @@ void TimingCore::timingTask(void* parameter) {
           core->state.pass_rssi_nadir = 255;
           
           if (core->debug_enabled) {
-            Serial.printf("Lap recorded - Peak RSSI: %d, Time since last: %dms\n", 
+            log_fmt("Lap recorded - Peak RSSI: %d, Time since last: %dms\n", 
                          core->rssi_peak, time_since_last_lap);
           }
         } else {
@@ -368,7 +365,7 @@ void TimingCore::timingTask(void* parameter) {
           // Only print rejection message once per second to avoid spam
           static uint32_t last_rejection_print = 0;
           if (core->debug_enabled && (current_time - last_rejection_print >= 1000)) {
-            Serial.printf("Lap rejected - Too soon (only %dms since last lap, need %dms)\n", 
+            log_fmt("Lap rejected - Too soon (only %dms since last lap, need %dms)\n", 
                          time_since_last_lap, MIN_LAP_TIME_MS);
             last_rejection_print = current_time;
           }
@@ -383,7 +380,7 @@ void TimingCore::timingTask(void* parameter) {
     taskYIELD();
     
     // Performance monitoring
-    uint32_t loop_end = micros();
+    uint32_t loop_end = hal_micros();
     uint32_t loop_time = loop_end - loop_start;
     
     loop_count++;
@@ -392,13 +389,13 @@ void TimingCore::timingTask(void* parameter) {
     total_loop_time += loop_time;
     
     // Report performance every 5 seconds - only in debug mode
-    uint32_t now = millis();
+    uint32_t now = hal_millis();
     if (now - last_perf_time >= 5000) {
       if (core->debug_enabled) {
         uint32_t avg_loop_time = total_loop_time / loop_count;
         uint32_t loops_per_second = (loop_count * 1000) / (now - last_perf_time);
         
-        Serial.printf("[TimingPerf] Loops/sec: %d, Avg: %dus, Min: %dus, Max: %dus\n", 
+        log_fmt("[TimingPerf] Loops/sec: %d, Avg: %dus, Min: %dus, Max: %dus\n", 
                       loops_per_second, avg_loop_time, min_loop_time, max_loop_time);
       }
       
@@ -419,15 +416,15 @@ uint8_t TimingCore::readRawRSSI() {
   // Check if frequency was recently changed - RSSI is unstable during tuning
   // Wait for tuning to complete before reading (same as RotorHazard)
   if (recent_freq_change) {
-    uint32_t timeVal = millis() - freq_change_time;
+    uint32_t timeVal = hal_millis() - freq_change_time;
     if (timeVal < RX5808_MIN_TUNETIME) {
-      delay(RX5808_MIN_TUNETIME - timeVal);  // wait until after-tune-delay time is fulfilled
+      hal_delay_ms(RX5808_MIN_TUNETIME - timeVal);  // wait until after-tune-delay time is fulfilled
     }
     recent_freq_change = false;  // don't need to check again until next freq change
   }
   
   // Read 12-bit ADC value (0-4095 on ESP32)
-  uint16_t adc_value = analogRead(g_rssi_input_pin);
+  uint16_t adc_value = hal_adc_read(g_rssi_input_pin);
   
   // RX5808 RSSI typically outputs 0-2V (not full 0-3.3V range)
   // Clamp to 2047 (half of 12-bit range = ~2V @ 3.3V reference)
@@ -646,25 +643,25 @@ void TimingCore::bufferNadir(const Extremum& nadir) {
 
 void TimingCore::setupRX5808() {
   if (debug_enabled) {
-    Serial.println("Setting up RX5808...");
+    log_line("Setting up RX5808...");
   }
   
   // Initialize SPI pins
-  pinMode(g_rx5808_data_pin, OUTPUT);
-  pinMode(g_rx5808_clk_pin, OUTPUT);
-  pinMode(g_rx5808_sel_pin, OUTPUT);
+  hal_gpio_output(g_rx5808_data_pin);
+  hal_gpio_output(g_rx5808_clk_pin);
+  hal_gpio_output(g_rx5808_sel_pin);
   
   if (debug_enabled) {
-    Serial.printf("RX5808 pins - DATA: %d, CLK: %d, SEL: %d\n", 
+    log_fmt("RX5808 pins - DATA: %d, CLK: %d, SEL: %d\n", 
                   g_rx5808_data_pin, g_rx5808_clk_pin, g_rx5808_sel_pin);
   }
   
   // Set initial states
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  digitalWrite(g_rx5808_clk_pin, LOW);
-  digitalWrite(g_rx5808_data_pin, LOW);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_gpio_write(g_rx5808_clk_pin, 0);
+  hal_gpio_write(g_rx5808_data_pin, 0);
   
-  delay(100); // Allow module to stabilize
+  hal_delay_ms(100); // Allow module to stabilize
   
   // CRITICAL: Reset RX5808 module to wake it and put it in a known state
   // This ensures reliable operation after power-on
@@ -675,21 +672,21 @@ void TimingCore::setupRX5808() {
   configureRX5808Power();
   
   if (debug_enabled) {
-    Serial.println("RX5808 setup complete (reset and configured)");
+    log_line("RX5808 setup complete (reset and configured)");
   }
 }
 
 void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   // Check if enough time has elapsed since last RX5808 bus access
   // This prevents bus conflicts and ensures reliable communication
-  uint32_t timeVal = millis() - lastRX5808BusTimeMs;
+  uint32_t timeVal = hal_millis() - lastRX5808BusTimeMs;
   if (timeVal < RX5808_MIN_BUSTIME) {
-    delay(RX5808_MIN_BUSTIME - timeVal);  // wait until after-bus-delay time is fulfilled
+    hal_delay_ms(RX5808_MIN_BUSTIME - timeVal);  // wait until after-bus-delay time is fulfilled
   }
   
   if (freq_mhz < MIN_FREQ || freq_mhz > MAX_FREQ) {
     if (debug_enabled) {
-      Serial.printf("Invalid frequency: %d MHz (valid range: %d-%d)\n", freq_mhz, MIN_FREQ, MAX_FREQ);
+      log_fmt("Invalid frequency: %d MHz (valid range: %d-%d)\n", freq_mhz, MIN_FREQ, MAX_FREQ);
     }
     return;
   }
@@ -707,8 +704,8 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   // 16 bits: Register value (LSB first)
   // 4 bits: Padding (0)
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  digitalWrite(g_rx5808_sel_pin, LOW);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_gpio_write(g_rx5808_sel_pin, 0);
   
   // Register 0x1 (frequency register)
   sendRX5808Bit(1);  // bit 0
@@ -731,42 +728,42 @@ void TimingCore::setRX5808Frequency(uint16_t freq_mhz) {
   sendRX5808Bit(0);
   sendRX5808Bit(0);
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  delay(2);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_delay_ms(2);
   
-  digitalWrite(g_rx5808_clk_pin, LOW);
-  digitalWrite(g_rx5808_data_pin, LOW);
+  hal_gpio_write(g_rx5808_clk_pin, 0);
+  hal_gpio_write(g_rx5808_data_pin, 0);
   
   state.frequency_mhz = freq_mhz;
   
   // Mark frequency change time to prevent unstable RSSI reads
   recent_freq_change = true;
-  freq_change_time = millis();
+  freq_change_time = hal_millis();
   lastRX5808BusTimeMs = freq_change_time;  // Track last bus access time
 }
 
 void TimingCore::sendRX5808Bit(uint8_t bit_value) {
   // Send a single bit to RX5808 using standard SPI-like protocol
   // 300µs delays ensure reliable communication with the module
-  digitalWrite(g_rx5808_data_pin, bit_value ? HIGH : LOW);
-  delayMicroseconds(300);
+  hal_gpio_write(g_rx5808_data_pin, bit_value ? 1 : 0);
+  hal_delay_us(300);
   
-  digitalWrite(g_rx5808_clk_pin, HIGH);
-  delayMicroseconds(300);
+  hal_gpio_write(g_rx5808_clk_pin, 1);
+  hal_delay_us(300);
   
-  digitalWrite(g_rx5808_clk_pin, LOW);
-  delayMicroseconds(300);
+  hal_gpio_write(g_rx5808_clk_pin, 0);
+  hal_delay_us(300);
 }
 
 void TimingCore::resetRX5808Module() {
   // Reset RX5808 by writing zeros to register 0xF
   // This wakes the module from power-down and puts it in a known state
   if (debug_enabled) {
-    Serial.println("Resetting RX5808 module (register 0xF)...");
+    log_line("Resetting RX5808 module (register 0xF)...");
   }
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  digitalWrite(g_rx5808_sel_pin, LOW);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_gpio_write(g_rx5808_sel_pin, 0);
   
   // Register 0xF (reset register) = 1111
   sendRX5808Bit(1);
@@ -782,11 +779,11 @@ void TimingCore::resetRX5808Module() {
     sendRX5808Bit(0);
   }
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  delay(10);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_delay_ms(10);
   
   if (debug_enabled) {
-    Serial.println("RX5808 reset complete");
+    log_line("RX5808 reset complete");
   }
 }
 
@@ -795,11 +792,11 @@ void TimingCore::configureRX5808Power() {
   // This disables unused features to save power and optimize performance
   // Power configuration: 0b11010000110111110011
   if (debug_enabled) {
-    Serial.println("Configuring RX5808 power (register 0xA)...");
+    log_line("Configuring RX5808 power (register 0xA)...");
   }
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  digitalWrite(g_rx5808_sel_pin, LOW);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_gpio_write(g_rx5808_sel_pin, 0);
   
   // Register 0xA (power register) = 1010
   sendRX5808Bit(0);
@@ -816,13 +813,13 @@ void TimingCore::configureRX5808Power() {
     sendRX5808Bit((power_config >> i) & 0x1);
   }
   
-  digitalWrite(g_rx5808_sel_pin, HIGH);
-  delay(10);
+  hal_gpio_write(g_rx5808_sel_pin, 1);
+  hal_delay_ms(10);
   
-  digitalWrite(g_rx5808_data_pin, LOW);
+  hal_gpio_write(g_rx5808_data_pin, 0);
   
   if (debug_enabled) {
-    Serial.println("RX5808 power configuration complete");
+    log_line("RX5808 power configuration complete");
   }
 }
 
@@ -876,7 +873,7 @@ bool TimingCore::pauseTemporarily(uint32_t pauseMs) {
     }
     xSemaphoreGive(timing_mutex);
     // Give timing task time to see the pause and yield
-    delay(10);
+    hal_delay_ms(10);
   }
   return wasActive;
 }
@@ -894,7 +891,7 @@ void TimingCore::setActivated(bool active) {
     state.activated = active;
     if (active && race_start_time_ms == 0) {
       // Set race start time when first activated
-      race_start_time_ms = millis();
+      race_start_time_ms = hal_millis();
     }
     // Timing activated/deactivated
     xSemaphoreGive(timing_mutex);
@@ -1148,10 +1145,9 @@ void TimingCore::setupADC_DMA() {
                                                    MALLOC_CAP_DMA);
   if (dma_result_buffer == nullptr) {
     if (debug_enabled) {
-      Serial.println("ERROR: Failed to allocate DMA buffer, falling back to polled ADC");
+      log_line("ERROR: Failed to allocate DMA buffer, falling back to polled ADC");
     }
     use_dma = false;
-    analogSetAttenuation(ADC_11db);
     return;
   }
   
@@ -1164,12 +1160,11 @@ void TimingCore::setupADC_DMA() {
   esp_err_t ret = adc_continuous_new_handle(&adc_config, &adc_handle);
   if (ret != ESP_OK) {
     if (debug_enabled) {
-      Serial.printf("ERROR: Failed to create ADC handle (0x%x), falling back to polled ADC\n", ret);
+      log_fmt("ERROR: Failed to create ADC handle (0x%x), falling back to polled ADC\n", ret);
     }
     use_dma = false;
     free(dma_result_buffer);
     dma_result_buffer = nullptr;
-    analogSetAttenuation(ADC_11db);
     return;
   }
   
@@ -1182,7 +1177,7 @@ void TimingCore::setupADC_DMA() {
   esp_err_t adc_err = adc_continuous_io_to_channel(g_rssi_input_pin, &adc_unit, &adc_channel);
   if (adc_err != ESP_OK || adc_unit != ADC_UNIT_1) {
     if (debug_enabled) {
-      Serial.printf("ERROR: GPIO%d is not a valid ADC1 pin (err 0x%x), falling back to polled ADC\n", 
+      log_fmt("ERROR: GPIO%d is not a valid ADC1 pin (err 0x%x), falling back to polled ADC\n", 
                     g_rssi_input_pin, adc_err);
     }
     use_dma = false;
@@ -1190,12 +1185,11 @@ void TimingCore::setupADC_DMA() {
     free(dma_result_buffer);
     dma_result_buffer = nullptr;
     adc_handle = nullptr;
-    analogSetAttenuation(ADC_11db);
     return;
   }
   
   if (debug_enabled) {
-    Serial.printf("ADC: GPIO%d mapped to ADC1_CH%d\n", g_rssi_input_pin, adc_channel);
+    log_fmt("ADC: GPIO%d mapped to ADC1_CH%d\n", g_rssi_input_pin, adc_channel);
   }
   
   adc_digi_pattern_config_t adc_pattern = {
@@ -1226,14 +1220,13 @@ void TimingCore::setupADC_DMA() {
   ret = adc_continuous_config(adc_handle, &dig_cfg);
   if (ret != ESP_OK) {
     if (debug_enabled) {
-      Serial.printf("ERROR: Failed to configure ADC (0x%x), falling back to polled ADC\n", ret);
+      log_fmt("ERROR: Failed to configure ADC (0x%x), falling back to polled ADC\n", ret);
     }
     use_dma = false;
     adc_continuous_deinit(adc_handle);
     free(dma_result_buffer);
     dma_result_buffer = nullptr;
     adc_handle = nullptr;
-    analogSetAttenuation(ADC_11db);
     return;
   }
   
@@ -1241,23 +1234,22 @@ void TimingCore::setupADC_DMA() {
   ret = adc_continuous_start(adc_handle);
   if (ret != ESP_OK) {
     if (debug_enabled) {
-      Serial.printf("ERROR: Failed to start ADC (0x%x), falling back to polled ADC\n", ret);
+      log_fmt("ERROR: Failed to start ADC (0x%x), falling back to polled ADC\n", ret);
     }
     use_dma = false;
     adc_continuous_deinit(adc_handle);
     free(dma_result_buffer);
     dma_result_buffer = nullptr;
     adc_handle = nullptr;
-    analogSetAttenuation(ADC_11db);
     return;
   }
   
   if (debug_enabled) {
-    Serial.println("DMA ADC started successfully - continuous sampling");
-    Serial.printf("  Channel: ADC1_CH%d (GPIO%d)\n", adc_channel, g_rssi_input_pin);
-    Serial.printf("  Sample rate: %d Hz\n", DMA_SAMPLE_RATE);
-    Serial.printf("  Buffer size: %d samples\n", DMA_BUFFER_SIZE);
-    Serial.println("  CPU overhead: ~0% (hardware DMA)");
+    log_line("DMA ADC started successfully - continuous sampling");
+    log_fmt("  Channel: ADC1_CH%d (GPIO%d)\n", adc_channel, g_rssi_input_pin);
+    log_fmt("  Sample rate: %d Hz\n", DMA_SAMPLE_RATE);
+    log_fmt("  Buffer size: %d samples\n", DMA_BUFFER_SIZE);
+    log_line("  CPU overhead: ~0% (hardware DMA)");
   }
 }
 
@@ -1387,12 +1379,12 @@ bool TimingCore::allocateRSSIHistory() {
     rssi_history_count = 0;
     last_rssi_sample_time = 0;
     if (debug_enabled) {
-      Serial.printf("RSSI history buffer allocated early: %d KB\n", required_bytes / 1024);
+      log_fmt("RSSI history buffer allocated early: %d KB\n", required_bytes / 1024);
     }
     return true;
   } else {
     if (debug_enabled) {
-      Serial.printf("WARNING: Failed to allocate RSSI history buffer (%d KB) - will retry during race\n", required_bytes / 1024);
+      log_fmt("WARNING: Failed to allocate RSSI history buffer (%d KB) - will retry during race\n", required_bytes / 1024);
     }
     return false;
   }

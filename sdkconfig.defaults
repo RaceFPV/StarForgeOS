@@ -22,6 +22,10 @@ CONFIG_ESP_COREDUMP_ENABLE=n
 # Disable other verbose output
 CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT=y
 
+# 240 MHz on every target that offers it
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+
 # Flash size configuration (default 4MB - most common)
 # Override in board-specific sdkconfig or use esp32dev-2mb environment for 2MB boards
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
@@ -42,7 +46,8 @@ CONFIG_ESP32_WIFI_RX_BA_WIN=4
 # CONFIG_ESP32_WIFI_MGMT_SBUF_NUM=16  # Reduced from default 32 (ESP32 may not support this)
 
 # LWIP (TCP/IP) optimization - further reduced
-CONFIG_LWIP_MAX_SOCKETS=3
+CONFIG_LWIP_MAX_SOCKETS=10
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_LWIP_SO_REUSE=y
 CONFIG_LWIP_SO_REUSE_RXTOALL=y
 # Reduce TCP buffer sizes (override common settings in platformio.ini)

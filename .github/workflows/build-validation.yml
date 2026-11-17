@@ -1,8 +1,7 @@
 name: Build Validation
 
-# Lightweight build validation for pull requests
-# Validates that code compiles for all board types without uploading firmware
-# Saves Actions minutes by running compilation checks only (~2-3 min vs 15-20 min)
+# Pull-request check: compile the native ESP-IDF firmware for every board.
+# Does not upload or flash.
 
 on:
   pull_request:
@@ -11,6 +10,10 @@ on:
       - 'src/**'
       - 'test/**'
       - 'platformio.ini'
+      - 'CMakeLists.txt'
+      - 'sdkconfig*'
+      - 'partitions*.csv'
+      - 'dependencies.lock'
       - '.github/workflows/build-validation.yml'
 
 jobs:
@@ -44,31 +47,18 @@ jobs:
     
     - name: Run build validation
       run: |
-        echo "🔧 Running build validation for all board types..."
-        make test || pio test \
-          -e test-esp32-c3 \
-          -e test-esp32-c6 \
-          -e test-esp32 \
-          -e test-esp32-s2 \
-          -e test-esp32-s3 \
-          -e test-esp32-s3-t-energy \
-          -e test-esp32-s3-touch \
-          -e test-jc2432w328c \
-          --without-uploading --without-testing
+        echo "Running native ESP-IDF firmware builds..."
+        failed=0
+        for env in esp32-c3-supermini esp32-c3 nuclearcounter esp32-c6 esp32dev esp32dev-2mb esp32-s3 esp32-s3-touch esp32-s3-t-energy esp32-s2 jc2432w328c; do
+          echo "==== $env ===="
+          pio run -e "$env" || failed=1
+        done
+        exit $failed
     
     - name: Generate Summary
       if: always()
       run: |
         echo "### Build Validation Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Build validation completed**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "This validates that:" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Code compiles for all 8 board types" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ No syntax or configuration errors" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Pin definitions are valid" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Note:** Full firmware builds run on merge to main branch" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Time saved:** This test runs in ~2-3 minutes vs 15-20 minutes for full builds" >> $GITHUB_STEP_SUMMARY
+        echo "Native ESP-IDF firmware compile for every board environment." >> $GITHUB_STEP_SUMMARY
 
