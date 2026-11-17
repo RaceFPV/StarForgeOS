@@ -48,7 +48,10 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '24'
+    
+    - name: Install npm 12
+      run: npm install -g npm@12.2.2
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -57,7 +60,7 @@ jobs:
     
     - name: Install dependencies
       working-directory: flash_tool
-      run: npm install
+      run: npm ci
     
     - name: Download esptool binaries
       working-directory: flash_tool

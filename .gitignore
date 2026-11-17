@@ -63,7 +63,6 @@ flash_tool/dist/
 flash_tool/out/
 flash_tool/firmware-cache/
 flash_tool/.npm/
-flash_tool/package-lock.json
 flash_tool/npm-debug.log*
 flash_tool/yarn-debug.log*
 flash_tool/yarn-error.log*
